@@ -132,10 +132,10 @@
 
 ## Phase 7 — Verify + release
 
-- [ ] **7.1** Bump version in `pyproject.toml` from `0.1.1` to `0.2.0`.
-- [ ] **7.2** Add a `[0.2.0]` entry at the top of `CHANGELOG.md` summarizing the backend swap.
-- [ ] **7.3** (Windows-only) Run `scripts/build_windows.sh` to produce the dist kit.
-- [ ] **7.4** (Windows-only) Manual verification — 4 tasks:
+- [x] **7.1** Bump version in `pyproject.toml` from `0.1.1` to `0.2.0`.
+- [x] **7.2** Add a `[0.2.0]` entry at the top of `CHANGELOG.md` summarizing the backend swap.
+- [-] **7.3** (Windows-only) Run `scripts/build_windows.sh` to produce the dist kit.
+- [-] **7.4** (Windows-only) Manual verification — 4 tasks:
   - Install `llama-server` via `winget install ggml.llamacpp`.
   - Start the app, point at a real `.gguf`, start the server, send a message, verify streaming.
   - Switch the model via the ComboBox, click "Iniciar servidor" again, verify the restart.
