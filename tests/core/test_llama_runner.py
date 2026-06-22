@@ -176,13 +176,21 @@ class TestLlamaRunner:
         """Given valid model, Popen is called with the documented argv."""
         client = self._make_client(check_running_result=False)
 
-        with patch("ollamachat.core.llama_runner.subprocess.Popen") as popen:
+        # The post-spawn proc.poll() check needs poll() to return None
+        # (process alive). Configure the mock accordingly.
+        popen_mock = MagicMock()
+        popen_mock.poll.return_value = None
+
+        with patch(
+            "ollamachat.core.llama_runner.subprocess.Popen",
+            return_value=popen_mock,
+        ) as popen_patch:
             from ollamachat.core.llama_runner import start_server
 
             start_server("/fake/model.gguf", client, timeout=0.5)
 
-        popen.assert_called_once()
-        args, kwargs = popen.call_args
+        popen_patch.assert_called_once()
+        args, kwargs = popen_patch.call_args
         argv = args[0]
         assert argv[0] == "llama-server"
         assert "--model" in argv
@@ -195,7 +203,12 @@ class TestLlamaRunner:
         client = MagicMock()
         client.check_running.side_effect = [False, False, False, True]
 
-        with patch("ollamachat.core.llama_runner.subprocess.Popen"):
+        # The post-spawn proc.poll() check needs poll() to return None
+        # (process alive). Configure the mock accordingly.
+        popen_mock = MagicMock()
+        popen_mock.poll.return_value = None
+
+        with patch("ollamachat.core.llama_runner.subprocess.Popen", return_value=popen_mock):
             from ollamachat.core.llama_runner import start_server
 
             ok, message = start_server("/fake/model.gguf", client, timeout=1.0)
@@ -209,7 +222,12 @@ class TestLlamaRunner:
         client = MagicMock()
         client.check_running.return_value = False
 
-        with patch("ollamachat.core.llama_runner.subprocess.Popen"):
+        # Post-spawn poll() must return None so the test reaches the
+        # poll loop instead of failing the immediate-death check.
+        popen_mock = MagicMock()
+        popen_mock.poll.return_value = None
+
+        with patch("ollamachat.core.llama_runner.subprocess.Popen", return_value=popen_mock):
             from ollamachat.core.llama_runner import start_server
 
             ok, message = start_server("/fake/model.gguf", client, timeout=0.5)
@@ -230,6 +248,37 @@ class TestLlamaRunner:
 
         assert ok is False
         assert "no se encontr" in message.lower()
+
+    def test_start_server_process_dies_immediately(self):
+        """F2: if Popen succeeds but the process exits right away
+        (e.g. invalid model, busy port), start_server returns
+        (False, ...) promptly instead of waiting the full timeout.
+
+        Note: the fast-path check_running() at the top of start_server
+        runs once (and returns False), then Popen is invoked, then
+        proc.poll() detects the early exit. The poll LOOP must not run.
+        """
+        import ollamachat.core.llama_runner as runner_mod
+        runner_mod._server_process = None
+
+        client = self._make_client(check_running_result=False)
+
+        dead_proc = MagicMock()
+        dead_proc.poll.return_value = 1  # already exited with code 1
+
+        with patch("ollamachat.core.llama_runner.subprocess.Popen",
+                   return_value=dead_proc):
+            from ollamachat.core.llama_runner import start_server
+
+            ok, message = start_server("/fake/model.gguf", client, timeout=10.0)
+
+        assert ok is False
+        assert "cerr" in message.lower() or "iniciar" in message.lower()
+        # The fast-path check ran once; the poll loop did NOT run.
+        # Total health checks: 1 (fast-path). If we had fallen into
+        # the poll loop with timeout=10s, the count would be much higher.
+        assert client.check_running.call_count == 1
+        assert runner_mod._server_process is None
 
     def test_start_server_stops_before_respawning(self):
         """Given a previously started server, calling start_server again stops the old one first."""

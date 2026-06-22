@@ -189,7 +189,7 @@ class ParamsPanel(wx.Panel):
         if paths:
             self.model_selector.SetSelection(0)
 
-    def add_model(self, path_str: str) -> None:
+    def add_model(self, path_str: str) -> bool:
         """Add a single .gguf file to the selector without clearing existing entries.
 
         If a model with the same basename is already in the selector, the
@@ -198,18 +198,29 @@ class ParamsPanel(wx.Panel):
 
         Args:
             path_str: Absolute path to a .gguf file.
+
+        Returns:
+            True if the model was added or already present (caller can
+            speak a confirmation). False if the path is not a .gguf file
+            or does not exist (caller can speak an error).
         """
         path = Path(path_str)
+        if path.suffix.lower() != ".gguf":
+            return False
+        if not path.is_file():
+            return False
+
         basename = path.name
         if basename in self._basename_to_path:
             # Already present — just select it
             index = self.model_selector.FindString(basename)
             if index != wx.NOT_FOUND:
                 self.model_selector.SetSelection(index)
-            return
+            return True
         self._basename_to_path[basename] = str(path)
         self.model_selector.Append(basename)
         self.model_selector.SetSelection(self.model_selector.GetCount() - 1)
+        return True
 
     def get_model(self) -> str:
         """Get the full absolute path of the selected model.

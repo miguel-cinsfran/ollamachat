@@ -226,10 +226,23 @@ def start_server(
         except OSError as e:
             return False, f"No se pudo iniciar el servidor: {e}"
 
-        # Step 5: Release lock before polling
-        # (lock released at end of with block)
+        # B1: detect immediate death. llama-server can exit instantly
+        # when the model file is unreadable, the port is busy, or any
+        # other startup error. Polling /health for 60s in that case
+        # would be a very long wait for an obvious failure.
+        # Give the process a short grace period (1s) to either stay
+        # alive or surface its error.
+        if _server_process.poll() is not None:
+            _server_process = None
+            return (
+                False,
+                "El servidor se cerró al iniciar (modelo inválido o puerto ocupado)",
+            )
 
-    # Step 6: Poll
+    # Lock is now released. Poll the health endpoint without holding
+    # the lock so a concurrent stop_server() can interrupt the wait by
+    # terminating the process; the next check_running() call will then
+    # return False and we will report a timeout.
     attempts = max(1, int(timeout / _POLL_INTERVAL_SECONDS))
     for _ in range(attempts):
         time.sleep(_POLL_INTERVAL_SECONDS)

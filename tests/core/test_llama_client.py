@@ -5,7 +5,7 @@ import sys
 import threading
 import time
 import types
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 import requests
@@ -134,10 +134,21 @@ class TestLlamaClient:
     # ── chat_stream — SSE dispatch ───────────────────────────────────────
 
     def _stub_stream(self, mock_session, lines: list[bytes]):
-        """Helper: stub POST to return a response whose iter_lines yields lines."""
-        mock_response = Mock()
+        """Helper: stub POST to return a response whose iter_lines yields lines.
+
+        The production code uses `with session.post(...) as response:`,
+        so we configure the mock so that ``__enter__()`` returns the
+        same mock_response object (rather than a fresh child mock) and
+        ``__exit__()`` returns False.
+        """
+        mock_response = MagicMock()
         mock_response.iter_lines.return_value = lines
-        mock_session.post.return_value = mock_response
+        mock_response.status_code = 200
+        mock_response.reason = "OK"
+        ctx = MagicMock()
+        ctx.__enter__.return_value = mock_response
+        ctx.__exit__.return_value = False
+        mock_session.post.return_value = ctx
 
     def test_chat_stream_two_events_then_done(self, mock_session, mock_call_after):
         """Given two SSE events then [DONE], on_token fires twice and on_donce once."""
@@ -282,9 +293,14 @@ class TestLlamaClient:
                 time.sleep(0.005)
             yield b'data: [DONE]'
 
-        mock_response = Mock()
+        mock_response = MagicMock()
         mock_response.iter_lines.return_value = slow_iter_lines()
-        mock_session.post.return_value = mock_response
+        mock_response.status_code = 200
+        mock_response.reason = "OK"
+        ctx = MagicMock()
+        ctx.__enter__.return_value = mock_response
+        ctx.__exit__.return_value = False
+        mock_session.post.return_value = ctx
 
         from ollamachat.core.llama_client import LlamaClient
 

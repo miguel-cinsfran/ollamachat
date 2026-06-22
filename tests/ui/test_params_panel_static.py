@@ -189,6 +189,73 @@ def test_scan_models_button_present():
     )
 
 
+def test_add_model_method_present():
+    """F4: add_model(path) exists, takes a path string, and returns bool.
+
+    MainWindow._on_browse_model uses the return value to decide whether
+    to speak a confirmation or an error. The runtime behavior is only
+    testable with wx, so we lock the contract via AST.
+    """
+    source_path = _get_ui_path("params_panel.py")
+    source = source_path.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    found_add_model = False
+    add_model_returns_bool = False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "add_model":
+            found_add_model = True
+            # Check the return annotation is bool
+            if node.returns is not None and isinstance(node.returns, ast.Name):
+                if node.returns.id == "bool":
+                    add_model_returns_bool = True
+
+    assert found_add_model, "ParamsPanel.add_model is missing"
+    assert add_model_returns_bool, (
+        "ParamsPanel.add_model must declare -> bool so callers can branch on it"
+    )
+
+
+def test_basename_to_path_init():
+    """_basename_to_path dict must be initialized in __init__.
+
+    add_model and get_model both rely on this dict being present from
+    the start, not lazily created on the first set_models call.
+    Accepts both plain ``self.x = ...`` and annotated ``self.x: T = ...``.
+    """
+    source_path = _get_ui_path("params_panel.py")
+    source = source_path.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    def _is_basename_target(target: ast.AST) -> bool:
+        return (
+            isinstance(target, ast.Attribute)
+            and target.attr == "_basename_to_path"
+        )
+
+    found = False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "__init__":
+            for child in ast.walk(node):
+                if isinstance(child, ast.Assign) and any(
+                    _is_basename_target(t) for t in child.targets
+                ):
+                    found = True
+                    break
+                if isinstance(child, ast.AnnAssign) and _is_basename_target(
+                    child.target
+                ):
+                    found = True
+                    break
+            if found:
+                break
+
+    assert found, (
+        "self._basename_to_path must be initialized in __init__ "
+        "(not lazily in set_models)"
+    )
+
+
 def _get_func_name(node: ast.Call) -> str:
     """Extract the full function name from a Call node (e.g. wx.BoxSizer -> wx.BoxSizer)."""
     if isinstance(node.func, ast.Attribute):

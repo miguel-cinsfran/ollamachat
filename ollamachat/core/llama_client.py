@@ -86,6 +86,12 @@ class LlamaClient:
         POST /v1/chat/completions with SSE parsing. The request body
         contains sampling parameters at the root (not nested in options).
 
+        If a previous stream is still running (e.g. the user clicked
+        "Enviar" twice in quick succession), it is aborted and joined
+        before the new stream starts. This prevents two concurrent
+        workers from racing on wx.CallAfter and emitting interleaved
+        tokens.
+
         Args:
             messages: List of message dicts with role and content.
             options: Sampling parameters dict (temperature, top_p, etc.).
@@ -93,6 +99,19 @@ class LlamaClient:
             on_done: Called once on successful completion via wx.CallAfter.
             on_error: Called once on error via wx.CallAfter.
         """
+        # A1/A3: stop any in-flight stream before starting a new one.
+        # Set the event first so the worker notices at its next line
+        # boundary, then join with a short timeout so we don't block
+        # the UI indefinitely.
+        self._stop_event.set()
+        if self._stream_thread is not None and self._stream_thread.is_alive():
+            self._stream_thread.join(timeout=1.0)
+            # If the thread is still alive after 1s (e.g. blocked in
+            # iter_lines), we proceed anyway. The new stream will start
+            # but the old one will eventually exit and discard its
+            # tokens — CallAfter ordering may not be perfect, but no
+            # callback is lost.
+
         self._stop_event.clear()
         self._stream_thread = threading.Thread(
             target=self._stream_worker,
@@ -135,46 +154,58 @@ class LlamaClient:
             }
             body.update(options)
 
-            response = self._session.post(
+            # D9: use a context manager so the connection is released
+            # back to the pool on exit even if an exception escapes
+            # the parser. D10: check status_code so a 4xx/5xx response
+            # is reported as an error instead of being silently parsed
+            # as (empty) SSE.
+            with self._session.post(
                 f"{self.base_url}/v1/chat/completions",
                 json=body,
                 stream=True,
                 timeout=60,
-            )
+            ) as response:
+                if response.status_code != 200:
+                    error_text = (
+                        f"Server returned HTTP {response.status_code}: "
+                        f"{response.reason or 'no reason'}"
+                    )
+                    wx.CallAfter(on_error, error_text)
+                    return
 
-            # SSE parser. requests.iter_lines() already buffers bytes until
-            # a newline, so each yielded item is a complete SSE line. We
-            # therefore only need to handle the line-level protocol here:
-            # skip blank/comment/event lines, recognize the "[DONE]"
-            # terminator, parse data: lines as JSON, extract the delta
-            # content, and forward it to on_token via wx.CallAfter.
-            # Malformed JSON lines are silently skipped (REQ-LLAMA-003).
-            for line in response.iter_lines():
-                if self._stop_event.is_set():
-                    break
-                if not line:
-                    continue
+                # SSE parser. requests.iter_lines() already buffers bytes until
+                # a newline, so each yielded item is a complete SSE line. We
+                # therefore only need to handle the line-level protocol here:
+                # skip blank/comment/event lines, recognize the "[DONE]"
+                # terminator, parse data: lines as JSON, extract the delta
+                # content, and forward it to on_token via wx.CallAfter.
+                # Malformed JSON lines are silently skipped (REQ-LLAMA-003).
+                for line in response.iter_lines():
+                    if self._stop_event.is_set():
+                        break
+                    if not line:
+                        continue
 
-                decoded = line.decode("utf-8") if isinstance(line, bytes) else line
-                if not decoded.startswith("data: "):
-                    continue  # blank, ":comment", "event:...", "id:..." → skip
+                    decoded = line.decode("utf-8") if isinstance(line, bytes) else line
+                    if not decoded.startswith("data: "):
+                        continue  # blank, ":comment", "event:...", "id:..." → skip
 
-                payload = decoded[len("data: "):]
-                if payload == "[DONE]":
-                    break
+                    payload = decoded[len("data: "):]
+                    if payload == "[DONE]":
+                        break
 
-                try:
-                    chunk = json.loads(payload)
-                except json.JSONDecodeError:
-                    continue  # malformed data line, skip
+                    try:
+                        chunk = json.loads(payload)
+                    except json.JSONDecodeError:
+                        continue  # malformed data line, skip
 
-                content = (
-                    chunk.get("choices", [{}])[0]
-                    .get("delta", {})
-                    .get("content", "")
-                )
-                if content:
-                    wx.CallAfter(on_token, content)
+                    content = (
+                        chunk.get("choices", [{}])[0]
+                        .get("delta", {})
+                        .get("content", "")
+                    )
+                    if content:
+                        wx.CallAfter(on_token, content)
 
             wx.CallAfter(on_done)
 
