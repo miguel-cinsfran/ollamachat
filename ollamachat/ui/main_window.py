@@ -314,16 +314,24 @@ class MainWindow(wx.Frame):
         )
         if dialog.ShowModal() == wx.ID_OK:
             filepath = dialog.GetPath()
-            self.params_panel.set_models([filepath])
+            self.params_panel.add_model(filepath)
         dialog.Destroy()
 
     # ── Message Send Flow ──────────────────────────────────────────────────
 
     def send_message(self) -> None:
-        """Build API payload and start streaming."""
+        """Build API payload and start streaming.
+
+        Accepts plain text, text with images, or images only. If neither
+        text nor images are present, the message is ignored.
+        """
         # Read input and attachments
         user_text = self.chat_panel.get_input_text()
-        if not user_text.strip():
+        attached_images = self.chat_panel.get_attached_images()
+        attached_text = self.chat_panel.get_attached_text()
+
+        # C3: allow empty text if there are images attached
+        if not user_text.strip() and not attached_images:
             return
 
         # Build API messages
@@ -338,34 +346,58 @@ class MainWindow(wx.Frame):
         api_messages.extend(self._conversation.get_messages_for_api())
 
         # New user message
-        user_msg: dict = {"role": "user", "content": user_text}
-        attached_images = self.chat_panel.get_attached_images()
-        attached_text = self.chat_panel.get_attached_text()
-        if attached_text:
-            user_msg["content"] = (
-                f"{user_text}\n\n"
-                f"[Contenido del archivo adjuntado]\n{attached_text}"
-            )
+        user_msg: dict
         if attached_images:
-            # Build OpenAI content-array format
-            parts: list[dict] = [{"type": "text", "text": user_text}]
+            # C5: build OpenAI content-array, incorporating text and attached_text
+            parts: list[dict] = []
+            if user_text.strip():
+                parts.append({"type": "text", "text": user_text})
+            if attached_text:
+                parts.append({
+                    "type": "text",
+                    "text": f"[Contenido del archivo adjuntado]\n{attached_text}",
+                })
             for b64, mime in attached_images:
                 url = f"data:{mime};base64,{b64}"
                 parts.append({
                     "type": "image_url",
                     "image_url": {"url": url},
                 })
-            user_msg["content"] = parts
+            user_msg = {"role": "user", "content": parts}
+        else:
+            # Plain text path (with or without attached_text)
+            if attached_text:
+                content = (
+                    f"{user_text}\n\n"
+                    f"[Contenido del archivo adjuntado]\n{attached_text}"
+                )
+            else:
+                content = user_text
+            user_msg = {"role": "user", "content": content}
         api_messages.append(user_msg)
 
         # Clear input and attachment
         self.chat_panel._clear_input()
         self.chat_panel.clear_attachment()
 
-        # Add to conversation and display (augmented content if text attached)
-        display_content = user_msg["content"]
-        self._conversation.add_message("user", display_content)
-        self.chat_panel.append_user_message(user_text)
+        # C4: store plain text in Conversation, NOT the content-array.
+        # For image messages, store a short marker so the conversation log
+        # round-trips and the user can see images were sent.
+        if attached_images:
+            n = len(attached_images)
+            if user_text.strip():
+                stored = f"{user_text} [imagen adjunta: {n}]"
+            else:
+                stored = f"[imagen adjunta: {n}]"
+        else:
+            stored = user_msg["content"]  # str in this branch
+        self._conversation.add_message("user", stored)
+
+        # Display: show the text or a marker when sending images only
+        if user_text.strip():
+            self.chat_panel.append_user_message(user_text)
+        else:
+            self.chat_panel.append_user_message("[imagen enviada]")
 
         # Start generation
         options = self.params_panel.get_params()
@@ -514,8 +546,9 @@ class MainWindow(wx.Frame):
     def _show_about(self) -> None:
         """Show About dialog."""
         about_msg = (
-            "OllamaChat v0.1.0\n\n"
-            "Cliente accesible de chat para Ollama.\n"
+            "OllamaChat v0.2.0\n\n"
+            "Cliente accesible de chat para modelos locales .gguf\n"
+            "usando llama-server (llama.cpp).\n"
             "Diseñado para usuarios de lectores de pantalla."
         )
         self._speech.speak(about_msg, interrupt=True)
@@ -533,7 +566,7 @@ class MainWindow(wx.Frame):
             "Ctrl+N: Nueva conversación\n"
             "Ctrl+O: Abrir conversación\n"
             "Ctrl+S: Guardar conversación\n"
-            "F5: Actualizar modelos\n"
+            "F5: Buscar modelos\n"
             "Escape: Detener generación\n"
             "Enter: Enviar mensaje\n"
             "Shift+Enter: Nueva línea en el input"

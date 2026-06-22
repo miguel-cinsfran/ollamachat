@@ -231,7 +231,7 @@ def test_start_server_handler_invokes_runner():
     )
 
 
-def test_start_ollama_button_uses_logger():
+def test_main_window_uses_logger():
     """MainWindow uses the logger module (so build/runtime events are recorded)."""
     source_path = _get_ui_path("main_window.py")
     source = source_path.read_text(encoding="utf-8")

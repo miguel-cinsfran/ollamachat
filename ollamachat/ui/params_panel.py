@@ -175,6 +175,8 @@ class ParamsPanel(wx.Panel):
     def set_models(self, paths: list[str]) -> None:
         """Populate the model selector with .gguf file basenames.
 
+        Replaces the entire selection. Used by the "Buscar modelos" scan.
+
         Args:
             paths: List of absolute paths to .gguf files.
         """
@@ -186,6 +188,28 @@ class ParamsPanel(wx.Panel):
             self.model_selector.Append(path.name)
         if paths:
             self.model_selector.SetSelection(0)
+
+    def add_model(self, path_str: str) -> None:
+        """Add a single .gguf file to the selector without clearing existing entries.
+
+        If a model with the same basename is already in the selector, the
+        selection moves to it instead of duplicating. Used by the
+        "Explorar..." file dialog.
+
+        Args:
+            path_str: Absolute path to a .gguf file.
+        """
+        path = Path(path_str)
+        basename = path.name
+        if basename in self._basename_to_path:
+            # Already present — just select it
+            index = self.model_selector.FindString(basename)
+            if index != wx.NOT_FOUND:
+                self.model_selector.SetSelection(index)
+            return
+        self._basename_to_path[basename] = str(path)
+        self.model_selector.Append(basename)
+        self.model_selector.SetSelection(self.model_selector.GetCount() - 1)
 
     def get_model(self) -> str:
         """Get the full absolute path of the selected model.
