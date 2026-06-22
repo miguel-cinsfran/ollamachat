@@ -132,22 +132,31 @@ setlocal EnableDelayedExpansion
 
 echo === OllamaChat Windows build ===
 
+REM Prefer uv; fall back to a venv + pip if uv is not installed.
 where uv >nul 2>nul
-if errorlevel 1 (
-    echo ERROR: uv not found. Install from https://github.com/astral-sh/uv
-    exit /b 1
-)
-
-echo Installing dependencies...
-uv sync || (
-    echo ERROR: uv sync failed
-    exit /b 1
-)
-
-echo Building executable with PyInstaller...
-uv run pyinstaller ollamachat.spec --clean --noconfirm || (
-    echo ERROR: pyinstaller build failed
-    exit /b 1
+if not errorlevel 1 (
+    echo Using uv to install dependencies...
+    uv sync || goto :error
+    echo Building executable with PyInstaller...
+    uv run pyinstaller ollamachat.spec --clean --noconfirm || goto :error
+) else (
+    echo uv not found; falling back to Python venv + pip.
+    echo Install uv from https://github.com/astral-sh/uv for a faster build.
+    echo.
+    where python >nul 2>nul
+    if errorlevel 1 (
+        echo ERROR: Python not found. Install Python 3.12+ from https://www.python.org/downloads/
+        goto :error
+    )
+    if not exist .venv\Scripts\activate.bat (
+        python -m venv .venv || goto :error
+    )
+    call .venv\Scripts\activate.bat
+    python -m pip install --upgrade pip || goto :error
+    python -m pip install -r requirements.txt || goto :error
+    python -m pip install pyinstaller || goto :error
+    echo Building executable with PyInstaller...
+    pyinstaller ollamachat.spec --clean --noconfirm || goto :error
 )
 
 echo.
@@ -155,10 +164,86 @@ echo === Build complete ===
 echo Output:  dist\ollamachat\ollamachat.exe
 echo.
 echo To run:        dist\ollamachat\ollamachat.exe
-echo To package:    powershell Compress-Archive dist\ollamachat ollamachat_portable.zip
+
+goto :eof
+
+:error
+echo.
+echo === Build failed ===
+echo See messages above. For debugging, check that Python 3.12+ is
+echo installed and that you have internet access (PyInstaller needs
+echo to download some files on first run).
 
 endlocal
+exit /b 1
 BAT_EOF
+
+# --- Step 4b: Write LEEME.txt (brief end-user instructions) --------------
+
+log "Writing LEEME.txt"
+cat > "$BUILD_DIR/LEEME.txt" <<LEEME_EOF
+OLLAMACHAT v${VERSION} - Instrucciones para Windows 11
+======================================================
+
+QUE HACER
+---------
+
+1. Descomprimi este zip en una carpeta (por ejemplo, el Escritorio).
+   Se va a crear una carpeta ollamachat_v${VERSION}_${TIMESTAMP}\ con todo adentro.
+
+2. Asegurate de tener Python 3.12 o superior instalado.
+   Si no lo tenes, bajalo de https://www.python.org/downloads/
+   Durante la instalacion, marca la opcion "Add Python to PATH".
+
+3. Asegurate de tener Ollama instalado y corriendo, con al menos un
+   modelo descargado. Si no, bajalo de https://ollama.com/download
+   y en una terminal ejecutá: ollama pull llama3.2
+
+4. Doble click en build.bat y esperá. La primera vez tarda entre
+   5 y 10 minutos porque tiene que descargar wxPython (que es pesado)
+   y compilar todo. Las veces siguientes tarda segundos.
+
+5. Cuando build.bat termina, andá a la carpeta recien creada
+   dist\ollamachat\ y hace doble click en ollamachat.exe.
+
+6. La primera vez, si Ollama no esta corriendo, te aparece un dialogo
+   y la aplicacion lo anuncia por voz. Apreta el boton "Iniciar Ollama"
+   que esta arriba de todo para arrancarlo. Despues F5 recarga la lista
+   de modelos.
+
+7. Para conversar: escribi en el campo de abajo y aprieta Enter.
+   Shift+Enter inserta salto de linea sin enviar.
+
+ATAJOS DE TECLADO
+-----------------
+
+- Ctrl+N: nueva conversacion
+- Ctrl+O: abrir una conversacion guardada
+- Ctrl+S: guardar la conversacion actual
+- F5: actualizar lista de modelos
+- Escape: detener la generacion de una respuesta
+- Enter: enviar el mensaje
+- Shift+Enter: nueva linea en el campo de entrada
+- Alt+F4: cerrar la aplicacion
+
+PROBLEMAS COMUNES
+-----------------
+
+- build.bat dice "Python no encontrado": instalá Python y reiniciá
+  la terminal (o reintenta con doble click).
+- La aplicacion dice "No se puede conectar a Ollama": inicia Ollama
+  desde el menu inicio, o hace click en "Iniciar Ollama" arriba.
+- La aplicacion se abre sin voz: instalá NVDA (gratis) o JAWS.
+  accessible-output2 los detecta automaticamente.
+- Cualquier otro error: revisá el archivo data\ollamachat.log dentro
+  de la misma carpeta donde corriste el exe.
+
+CONTACTO
+--------
+
+- Repo de GitHub: https://github.com/miguel-cinsfran/ollamachat
+- Para reportar bugs: abrir un issue en el repo.
+LEEME_EOF
 
 # --- Step 5: Write PyInstaller spec --------------------------------------
 
