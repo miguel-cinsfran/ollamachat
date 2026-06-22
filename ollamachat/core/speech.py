@@ -37,6 +37,20 @@ class Speech:
             self._output = None
             self.is_silent = True
 
+    def is_screen_reader_active(self) -> bool:
+        """Return True if a real screen reader (NVDA, JAWS, etc.) is active.
+
+        Returns False when in silent mode, when the TTS backend is a
+        generic system voice rather than a screen reader, or when
+        probing the output mode raises any exception.
+        """
+        if self.is_silent or self._output is None:
+            return False
+        try:
+            return not self._output.is_system_output()
+        except Exception:
+            return False
+
     def speak(self, text: str, interrupt: bool = True) -> None:
         """Speak the given text.
 

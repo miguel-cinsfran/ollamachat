@@ -8,7 +8,9 @@ full send/receive flow between OllamaClient, Conversation, and Speech.
 import wx
 
 from ollamachat.core.conversation import Conversation
+from ollamachat.core.logger import get_logger
 from ollamachat.core.ollama_client import OllamaClient
+from ollamachat.core.ollama_runner import start_ollama
 from ollamachat.core.speech import Speech
 from ollamachat.ui.chat_panel import ChatPanel
 from ollamachat.ui.params_panel import ParamsPanel
@@ -53,6 +55,23 @@ class MainWindow(wx.Frame):
             self.params_panel, self.chat_panel, sashPosition=280
         )
 
+        # ── Top toolbar: start Ollama server ───────────────────────────
+        self.start_ollama_button = wx.Button(
+            self, label="Iniciar Ollama", name="start_ollama_button"
+        )
+        self.start_ollama_button.Bind(
+            wx.EVT_BUTTON, lambda evt: self._on_start_ollama()
+        )
+
+        toolbar_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        toolbar_sizer.Add(
+            wx.StaticText(self, label="Servidor:"),
+            flag=wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, border=4,
+        )
+        toolbar_sizer.Add(
+            self.start_ollama_button, flag=wx.ALIGN_CENTER_VERTICAL
+        )
+
         # Wire up chat panel actions to MainWindow handlers
         self.chat_panel.send_button.Bind(wx.EVT_BUTTON, lambda evt: self.send_message())
         self.chat_panel.stop_button.Bind(
@@ -68,6 +87,7 @@ class MainWindow(wx.Frame):
         )
 
         sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(toolbar_sizer, flag=wx.ALL, border=8)
         sizer.Add(self.splitter, proportion=1, flag=wx.EXPAND)
         self.SetSizer(sizer)
 
@@ -163,7 +183,9 @@ class MainWindow(wx.Frame):
 
     def _startup_check(self) -> None:
         """Check if Ollama is running and populate model list."""
+        log = get_logger()
         if self._client.check_running():
+            log.info("Startup: Ollama detected")
             self.status_bar.SetStatusText("Conectado", 0)
             self._speech.speak("Conectado", interrupt=True)
             self._refresh_models()
@@ -173,6 +195,7 @@ class MainWindow(wx.Frame):
                 "http://localhost:11434. "
                 "Asegurate de que Ollama esté instalado y ejecutándose."
             )
+            log.warning("Startup: Ollama not detected")
             self.status_bar.SetStatusText("Desconectado", 0)
             self._speech.speak(msg, interrupt=True)
             wx.MessageDialog(
@@ -184,11 +207,41 @@ class MainWindow(wx.Frame):
 
     def _refresh_models(self) -> None:
         """Refresh the model list from Ollama."""
+        log = get_logger()
         models = self._client.list_models()
         self.params_panel.set_models(models)
         if models:
+            log.info(f"Models refreshed: {len(models)} available")
             self.status_bar.SetStatusText(f"Modelo: {models[0]}", 1)
             self._speech.speak(f"Modelo: {models[0]}", interrupt=True)
+        else:
+            log.warning("No models returned from Ollama")
+
+    def _on_start_ollama(self) -> None:
+        """Start the Ollama server via subprocess.
+
+        Delegates the actual subprocess work to
+        :func:`ollamachat.core.ollama_runner.start_ollama` and only
+        handles the UI side: logging, status bar updates, and the
+        spoken announcement.
+        """
+        log = get_logger()
+        log.info("Start Ollama button clicked")
+
+        self.status_bar.SetStatusText("Iniciando Ollama...", 0)
+        self._speech.speak("Iniciando Ollama", interrupt=True)
+
+        ok, message = start_ollama(self._client)
+        log.info(f"start_ollama returned ok={ok}, message={message!r}")
+        self._speech.speak(message, interrupt=True)
+
+        if ok:
+            self.status_bar.SetStatusText("Conectado", 0)
+            if "ya está" not in message:
+                # Only refresh models if we just started the server
+                self._refresh_models()
+        else:
+            self.status_bar.SetStatusText("Error", 0)
 
     # ── Message Send Flow ──────────────────────────────────────────────────
 

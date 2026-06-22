@@ -286,3 +286,46 @@ def test_speak_raises_mid_call(mock_auto):
     speech = Speech()
     result = speech.speak("texto")
     assert result is None
+
+
+# ─── Screen Reader Detection ─────────────────────────────────────────────────
+
+
+def test_is_screen_reader_active_true(mock_auto):
+    """Given the TTS backend is a real screen reader, returns True."""
+    from ollamachat.core.speech import Speech
+
+    mock_auto.return_value.is_system_output.return_value = False
+    speech = Speech()
+    assert speech.is_screen_reader_active() is True
+
+
+def test_is_screen_reader_active_false_when_system_output(mock_auto):
+    """Given the TTS backend is a generic system voice, returns False."""
+    from ollamachat.core.speech import Speech
+
+    mock_auto.return_value.is_system_output.return_value = True
+    speech = Speech()
+    assert speech.is_screen_reader_active() is False
+
+
+def test_is_screen_reader_active_false_in_silent_mode():
+    """Given the wrapper is in silent mode, returns False even if probed."""
+    from ollamachat.core.speech import Speech
+
+    speech = Speech()
+    # Force silent mode
+    speech.is_silent = True
+    speech._output = None
+    assert speech.is_screen_reader_active() is False
+
+
+def test_is_screen_reader_active_swallows_probe_exception(mock_auto):
+    """Given is_system_output raises, returns False (never-crash contract)."""
+    from ollamachat.core.speech import Speech
+
+    mock_auto.return_value.is_system_output.side_effect = RuntimeError(
+        "probe failed"
+    )
+    speech = Speech()
+    assert speech.is_screen_reader_active() is False

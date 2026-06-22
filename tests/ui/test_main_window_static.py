@@ -172,6 +172,55 @@ def test_status_bar():
     assert found_statusbar, "No wx.StatusBar / CreateStatusBar found in source"
 
 
+def test_start_ollama_button_present():
+    """A 'Iniciar Ollama' button with name=start_ollama_button is built."""
+    source_path = _get_ui_path("main_window.py")
+    source = source_path.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    found_button = False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            func_name = _get_func_name(node)
+            if func_name == "wx.Button":
+                has_name = any(
+                    kw.arg == "name"
+                    and isinstance(kw.value, ast.Constant)
+                    and kw.value.value == "start_ollama_button"
+                    for kw in node.keywords
+                    if kw.arg is not None
+                )
+                if has_name:
+                    found_button = True
+                    break
+
+    assert found_button, (
+        "No wx.Button with name='start_ollama_button' found in source"
+    )
+
+
+def test_start_ollama_handler_invokes_runner():
+    """_on_start_ollama calls start_ollama from ollamachat.core.ollama_runner."""
+    source_path = _get_ui_path("main_window.py")
+    source = source_path.read_text(encoding="utf-8")
+
+    # The handler should import and call the runner function.
+    assert "from ollamachat.core.ollama_runner import start_ollama" in source, (
+        "MainWindow must import start_ollama from ollamachat.core.ollama_runner"
+    )
+    assert "start_ollama(self._client)" in source, (
+        "_on_start_ollama must call start_ollama(self._client)"
+    )
+
+
+def test_start_ollama_button_uses_logger():
+    """MainWindow uses the logger module (so build/runtime events are recorded)."""
+    source_path = _get_ui_path("main_window.py")
+    source = source_path.read_text(encoding="utf-8")
+    assert "from ollamachat.core.logger import get_logger" in source
+    assert "get_logger()" in source
+
+
 def _get_func_name(node: ast.Call) -> str:
     """Extract the full function name from a Call node."""
     if isinstance(node.func, ast.Attribute):

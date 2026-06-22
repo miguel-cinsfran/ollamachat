@@ -9,3 +9,6 @@ __pycache__/
 .coverage
 htmlcov/
 *.tmp
+dist/
+build/
+NOTAS_PARA_PROBAR.txt

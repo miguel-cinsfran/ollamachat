@@ -244,3 +244,93 @@ reset the attachment label to `"(ninguno)"`.
 - THEN `conversation.messages == []`
 - AND `conversation_display` is empty
 - AND `chat_panel.attachment_label.GetLabel() == "(ninguno)"`
+
+### Requirement: Start Ollama Button
+
+The shell MUST display a button labeled "Iniciar Ollama" with
+`name="start_ollama_button"`, preceded by a `wx.StaticText` label
+"Servidor:". When clicked, `MainWindow` MUST delegate to
+`ollamachat.core.ollama_runner.start_ollama(client)`. Every state
+transition (click, already running, spawn, success, timeout, spawn
+failure) MUST be logged via `ollamachat.core.logger.get_logger()` and
+announced via `speech.speak(message, interrupt=True)`. On Windows, the
+spawned subprocess MUST be created with `creationflags=0x08000000`
+(`CREATE_NO_WINDOW`) so no console window flashes.
+
+#### Scenario: Button present in UI [windows-only]
+
+- GIVEN `MainWindow` is constructed
+- WHEN the source is inspected
+- THEN a `wx.Button` with `name="start_ollama_button"` exists
+- AND a preceding `wx.StaticText` label "Servidor:" exists
+
+#### Scenario: Click when already running
+
+- GIVEN Ollama is responding
+- WHEN the user clicks the start button
+- THEN `start_ollama(client)` returns `(True, "Ollama ya está corriendo")`
+- AND the logger records the "already running" event
+- AND `speech.speak` is called with "Ollama ya está corriendo", interrupt=True
+
+#### Scenario: Click when down spawns and announces success
+
+- GIVEN Ollama is not responding
+- AND `ollama serve` is spawned successfully
+- AND `check_running` becomes True within the poll window
+- WHEN the user clicks the start button
+- THEN `start_ollama(client)` returns `(True, "Ollama listo")`
+- AND the logger records "spawn" and "started successfully"
+- AND `speech.speak` is called with "Ollama listo", interrupt=True
+- AND `check_running` is polled at most 25 times at 0.2s intervals
+
+#### Scenario: Click when down but timeout
+
+- GIVEN Ollama is not responding
+- AND `ollama serve` is spawned but `check_running` never returns True
+- WHEN the user clicks the start button
+- THEN `start_ollama(client)` returns `(False, "Ollama no responde")`
+- AND the logger records the timeout
+- AND `speech.speak` is called with "Ollama no responde", interrupt=True
+
+#### Scenario: Click when ollama binary missing
+
+- GIVEN Ollama is not responding
+- AND the `ollama` command is not on PATH (FileNotFoundError)
+- WHEN the user clicks the start button
+- THEN the exception is caught inside `start_ollama`
+- AND it returns `(False, "No se pudo iniciar Ollama: ...")`
+- AND the logger records the error
+- AND `speech.speak` is called with the error message, interrupt=True
+
+### Requirement: Application Logging
+
+`MainWindow` MUST use `ollamachat.core.logger.get_logger()` to record
+the following events: startup detection (Ollama up / down), model list
+refreshes (with count and selection), and the start-Ollama flow (click,
+spawn, success, timeout, error). The logger MUST be idempotent
+(repeated calls return the same configured logger) and MUST never
+crash the app on file-open failure. The default log file is
+`data/ollamachat.log` in the current working directory, written in
+UTF-8.
+
+#### Scenario: Log file is created on first use
+
+- GIVEN `MainWindow` is constructed and the working directory is writable
+- WHEN any logged event occurs
+- THEN `data/ollamachat.log` exists in the working directory
+- AND the log file contains the event with a timestamp
+
+#### Scenario: Logger does not crash on file-open failure
+
+- GIVEN the data directory cannot be created or written
+- WHEN `get_logger()` is called
+- THEN no exception is raised
+- AND a `NullHandler` is attached as fallback
+- AND `log.info(...)` calls do not raise
+
+#### Scenario: Logger is idempotent
+
+- GIVEN `get_logger()` has been called once
+- WHEN it is called again
+- THEN the same logger object is returned
+- AND no second FileHandler is attached
