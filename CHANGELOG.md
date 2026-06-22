@@ -2,6 +2,32 @@
 
 Todas las versiones notables del proyecto OllamaChat.
 
+## [0.2.0] - 2026-06-22
+
+### Cambiado
+- Backend migrado de Ollama a llama.cpp (`llama-server` vía HTTP en `localhost:8080`)
+- `ollamachat/core/ollama_client.py` reemplazado por `llama_client.py` (API OpenAI-compatible con SSE)
+- `ollamachat/core/ollama_runner.py` reemplazado por `llama_runner.py` (lifecycle PID trackeado + `.gguf` discovery)
+- `wx.Choice` cambiado a `wx.ComboBox` en el selector de modelo, con botones "Buscar modelos" y "Explorar..."
+- Toolbar: "Iniciar Ollama" renombrado a "Iniciar servidor"; nuevo botón "Detener servidor"
+- `send_message` ya no pasa `model=`; usa content-array OpenAI para adjuntos de imagen
+- Parámetro `num_predict` renombrado a `max_tokens`
+- Startup detecta 3 estados: no instalado (dialog con `winget`), detenido, corriendo
+- `_on_close` detiene `llama-server` al cerrar la ventana
+
+### Agregado
+- 13 tests nuevos para `LlamaClient` (health check, model listing, SSE streaming, abort)
+- 17 tests nuevos para `LlamaRunner` (find/start/stop, gguf discovery, install command)
+- `_on_browse_model`: diálogo para seleccionar `.gguf` manualmente
+
+### Eliminado
+- `ollamachat/core/ollama_client.py`, `ollamachat/core/ollama_runner.py`
+- `tests/core/test_ollama_client.py`, `tests/core/test_ollama_runner.py`
+- Soporte para API NDJSON de Ollama (`/api/chat`, `/api/tags`)
+
+### Conocido
+- 4 tareas `[windows-only]` de verificación manual: instalar `llama-server` via `winget`, probar streaming, switch de modelo, detener servidor
+
 ## [0.1.1] - 2026-06-22
 
 ### Agregado
