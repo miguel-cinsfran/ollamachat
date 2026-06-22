@@ -8,6 +8,8 @@ and Speech.
 
 import wx
 
+from pathlib import Path
+
 from ollamachat.core.conversation import Conversation
 from ollamachat.core.llama_client import LlamaClient
 from ollamachat.core.llama_runner import (
@@ -268,6 +270,21 @@ class MainWindow(wx.Frame):
             self._speech.speak(msg, interrupt=True)
             return
 
+        # D3: fail fast if the .gguf file does not exist on disk.
+        # Otherwise llama-server would launch, fail to load the model,
+        # and the user would wait the full 60-second timeout for nothing.
+        if not Path(model_path).is_file():
+            msg = f"No se encontró el archivo: {model_path}"
+            log.error(f"Start server: model file not found: {model_path}")
+            self._speech.speak(msg, interrupt=True)
+            wx.MessageDialog(
+                self,
+                message=msg,
+                caption="Archivo no encontrado",
+                style=wx.OK | wx.ICON_ERROR,
+            ).ShowModal()
+            return
+
         self.start_server_button.Disable()
         self.status_bar.SetStatusText("Iniciando servidor...", 0)
         self._speech.speak("Iniciando servidor...", interrupt=True)
@@ -282,6 +299,9 @@ class MainWindow(wx.Frame):
             self.stop_server_button.Enable()
         else:
             self.status_bar.SetStatusText("Error al iniciar", 0)
+            # C1: keep the stop button disabled if start failed — there
+            # is nothing to stop.
+            self.stop_server_button.Disable()
 
         self._speech.speak(message, interrupt=True)
         self.start_server_button.Enable()
@@ -314,7 +334,16 @@ class MainWindow(wx.Frame):
         )
         if dialog.ShowModal() == wx.ID_OK:
             filepath = dialog.GetPath()
-            self.params_panel.add_model(filepath)
+            basename = Path(filepath).name
+            if self.params_panel.add_model(filepath):
+                # D4: speak a confirmation so blind users get feedback.
+                self._speech.speak(f"Modelo seleccionado: {basename}", interrupt=True)
+            else:
+                # D2: the path did not pass the .gguf / exists checks.
+                self._speech.speak(
+                    f"Archivo no válido: {basename}. Debe ser un .gguf existente.",
+                    interrupt=True,
+                )
         dialog.Destroy()
 
     # ── Message Send Flow ──────────────────────────────────────────────────
