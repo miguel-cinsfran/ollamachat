@@ -36,6 +36,8 @@ from bellbird.core.config import load_config
 from bellbird.core.permission_manager import PermissionManager
 from bellbird.core.tool_executor import ToolExecutor, ToolResult
 from bellbird.ui.permission_dialog import PermissionDialog
+from bellbird.ui.preferences_dialog import PreferencesDialog
+from bellbird.core.config import save_config
 
 SHELL_TOOL_DEFINITION = {
     "type": "function",
@@ -196,6 +198,13 @@ class MainWindow(wx.Frame):
 
         archivo_menu.AppendSeparator()
 
+        menu_prefs = archivo_menu.Append(
+            wx.ID_PREFERENCES, "Preferencias\tCtrl+,",
+            "Abrir el diálogo de preferencias",
+        )
+        menu_prefs.SetName("menu_preferences")
+        self.Bind(wx.EVT_MENU, lambda evt: self._show_preferences(), menu_prefs)
+
         menu_exit = archivo_menu.Append(
             wx.ID_EXIT, "Salir\tAlt+F4", "Salir de Bellbird"
         )
@@ -212,8 +221,9 @@ class MainWindow(wx.Frame):
         menu_about.SetName("menu_about")
         self.Bind(wx.EVT_MENU, lambda evt: self._show_about(), menu_about)
 
+        self.ID_SHORTCUTS = wx.NewIdRef()
         menu_shortcuts = ayuda_menu.Append(
-            wx.ID_PREFERENCES,
+            self.ID_SHORTCUTS,
             "Atajos de teclado",
             "Ver atajos de teclado disponibles",
         )
@@ -256,6 +266,7 @@ class MainWindow(wx.Frame):
             wx.AcceleratorEntry(wx.ACCEL_NORMAL, wx.WXK_F6, self.ID_F6),
             wx.AcceleratorEntry(wx.ACCEL_NORMAL, wx.WXK_F7, self.ID_START_SERVER),
             wx.AcceleratorEntry(wx.ACCEL_CTRL, wx.WXK_F7, self.ID_STOP_SERVER),
+            wx.AcceleratorEntry(wx.ACCEL_CTRL, ord(","), wx.ID_PREFERENCES),
         ]
 
         # Bind standard accelerators
@@ -1155,3 +1166,11 @@ class MainWindow(wx.Frame):
             style=wx.OK | wx.ICON_INFORMATION,
         ).ShowModal()
         self._speech.speak(shortcuts, interrupt=True)
+
+    def _show_preferences(self) -> None:
+        """Open the PreferencesDialog, persist on OK, leave untouched on Cancel."""
+        dlg = PreferencesDialog(self, self._config)
+        if dlg.ShowModal() == wx.ID_OK:
+            self._config = dlg.get_config()
+            save_config(self._config)
+        dlg.Destroy()
