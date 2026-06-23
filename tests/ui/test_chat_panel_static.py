@@ -12,7 +12,7 @@ def _get_ui_path(filename: str) -> pathlib.Path:
     """Resolve the source file path for a UI module."""
     return (
         pathlib.Path(__file__).resolve().parent.parent.parent
-        / "ollamachat"
+        / "bellbird"
         / "ui"
         / filename
     )
@@ -273,7 +273,7 @@ def test_clear_resets_generation_state() -> None:
     in-flight stream completes (up to 60s for a long response).
     """
     from pathlib import Path
-    src = Path("ollamachat/ui/chat_panel.py").read_text(encoding="utf-8")
+    src = Path("bellbird/ui/chat_panel.py").read_text(encoding="utf-8")
     # Find the clear method specifically (not _on_clear or other helpers)
     import re
     m = re.search(
@@ -303,7 +303,7 @@ def test_on_list_key_uses_unicode_key_not_ascii_range() -> None:
     check must be removed.
     """
     from pathlib import Path
-    src = Path("ollamachat/ui/chat_panel.py").read_text(encoding="utf-8")
+    src = Path("bellbird/ui/chat_panel.py").read_text(encoding="utf-8")
     assert "GetUnicodeKey" in src, (
         "_on_list_key must use event.GetUnicodeKey() to support non-ASCII "
         "characters (ñ, á, é, í, ó, ú, etc.) for the Spanish-speaking target user"
@@ -399,7 +399,7 @@ def test_end_generation_skips_empty_preview() -> None:
     """
     import re
     from pathlib import Path
-    src = Path("ollamachat/ui/chat_panel.py").read_text(encoding="utf-8")
+    src = Path("bellbird/ui/chat_panel.py").read_text(encoding="utf-8")
     m = re.search(
         r"def end_generation\(self\) -> None:.*?"
         r"(?=\n    def |\nclass |\Z)",

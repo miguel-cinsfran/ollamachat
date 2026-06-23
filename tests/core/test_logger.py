@@ -4,13 +4,13 @@ import logging
 
 import pytest
 
-from ollamachat.core.logger import get_logger
+from bellbird.core.logger import get_logger
 
 
 @pytest.fixture
 def clean_logger():
-    """Remove any cached handlers and sentinel on the 'ollamachat' logger."""
-    logger = logging.getLogger("ollamachat")
+    """Remove any cached handlers and sentinel on the 'bellbird' logger."""
+    logger = logging.getLogger("bellbird")
     _reset_logger(logger)
     yield logger
     _reset_logger(logger)
@@ -25,8 +25,8 @@ def _reset_logger(logger):
             except Exception:
                 pass
             logger.removeHandler(h)
-    if hasattr(logger, "_ollamachat_configured"):
-        delattr(logger, "_ollamachat_configured")
+    if hasattr(logger, "_bellbird_configured"):
+        delattr(logger, "_bellbird_configured")
 
 
 def test_get_logger_returns_logger_instance(clean_logger, monkeypatch, tmp_path):
@@ -34,23 +34,23 @@ def test_get_logger_returns_logger_instance(clean_logger, monkeypatch, tmp_path)
     monkeypatch.chdir(tmp_path)
     log = get_logger()
     assert isinstance(log, logging.Logger)
-    assert log.name == "ollamachat"
+    assert log.name == "bellbird"
 
 
 def test_get_logger_writes_to_data_dir(clean_logger, monkeypatch, tmp_path):
     """The log file is created under data/ in the current working directory."""
     monkeypatch.chdir(tmp_path)
     log = get_logger()
-    log.info("hello from ollamachat")
+    log.info("hello from bellbird")
     # Flush buffered writes so we can read the file before the
     # handler is closed.
     for h in log.handlers:
         h.flush()
 
-    log_file = tmp_path / "data" / "ollamachat.log"
+    log_file = tmp_path / "data" / "bellbird.log"
     assert log_file.exists(), f"Expected log file at {log_file}"
     content = log_file.read_text(encoding="utf-8")
-    assert "hello from ollamachat" in content
+    assert "hello from bellbird" in content
     assert "INFO" in content
 
 
@@ -80,7 +80,7 @@ def test_get_logger_levels(clean_logger, monkeypatch, tmp_path):
     for h in log.handlers:
         h.flush()
 
-    content = (tmp_path / "data" / "ollamachat.log").read_text(encoding="utf-8")
+    content = (tmp_path / "data" / "bellbird.log").read_text(encoding="utf-8")
     assert "d-message" in content
     assert "i-message" in content
     assert "w-message" in content
@@ -99,7 +99,7 @@ def test_get_logger_uses_utf8(clean_logger, monkeypatch, tmp_path):
     for h in log.handlers:
         h.flush()
 
-    content = (tmp_path / "data" / "ollamachat.log").read_text(encoding="utf-8")
+    content = (tmp_path / "data" / "bellbird.log").read_text(encoding="utf-8")
     assert "eñes" in content
     assert "ñ" in content
 
@@ -109,7 +109,7 @@ def test_get_logger_swallows_file_open_failure(clean_logger, monkeypatch, tmp_pa
     monkeypatch.chdir(tmp_path)
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(
-            "ollamachat.core.logger.logging.FileHandler",
+            "bellbird.core.logger.logging.FileHandler",
             lambda *a, **kw: (_ for _ in ()).throw(PermissionError("denied")),
         )
         # Must not raise

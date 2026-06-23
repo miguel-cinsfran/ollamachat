@@ -11,7 +11,7 @@ import pytest
 
 def test_add_user_message():
     """Given a fresh Conversation, add a user message."""
-    from ollamachat.core.conversation import Conversation
+    from bellbird.core.conversation import Conversation
 
     conv = Conversation()
     conv.add_message("user", "Hola")
@@ -25,7 +25,7 @@ def test_add_user_message():
 
 def test_add_user_message_with_image():
     """Given a user message with an image, images key is preserved."""
-    from ollamachat.core.conversation import Conversation
+    from bellbird.core.conversation import Conversation
 
     conv = Conversation()
     conv.add_message("user", "¿Qué ves?", images=["iVBORw0KGgoAAAANSUhEUg..."])
@@ -34,7 +34,7 @@ def test_add_user_message_with_image():
 
 def test_assistant_message_without_images():
     """Given an assistant message, no images key is present."""
-    from ollamachat.core.conversation import Conversation
+    from bellbird.core.conversation import Conversation
 
     conv = Conversation()
     conv.add_message("assistant", "Hola, ¿en qué te ayudo?")
@@ -46,7 +46,7 @@ def test_assistant_message_without_images():
 
 def test_get_messages_strips_timestamp():
     """Given mixed messages, get_messages_for_api strips timestamps."""
-    from ollamachat.core.conversation import Conversation
+    from bellbird.core.conversation import Conversation
 
     conv = Conversation()
     conv.add_message("system", "Eres útil.")
@@ -64,7 +64,7 @@ def test_get_messages_strips_timestamp():
 
 def test_api_payload_preserves_images():
     """Given a message with images, API payload preserves them without timestamp."""
-    from ollamachat.core.conversation import Conversation
+    from bellbird.core.conversation import Conversation
 
     conv = Conversation()
     conv.add_message("user", "ver imagen", images=["AAAA"])
@@ -78,7 +78,7 @@ def test_api_payload_preserves_images():
 
 def test_round_trip_without_images():
     """Given a conversation without images, to_dict/from_dict round-trips."""
-    from ollamachat.core.conversation import Conversation
+    from bellbird.core.conversation import Conversation
 
     conv = Conversation()
     conv.add_message("user", "Hola")
@@ -92,7 +92,7 @@ def test_round_trip_without_images():
 
 def test_round_trip_with_images():
     """Given a conversation with images, to_dict/from_dict round-trips."""
-    from ollamachat.core.conversation import Conversation
+    from bellbird.core.conversation import Conversation
 
     conv = Conversation()
     conv.add_message("user", "ver imagen", images=["iVBORw0..."])
@@ -107,7 +107,7 @@ def test_round_trip_with_images():
 
 def test_save_to_disk(tmp_path):
     """Given a conversation, save writes valid JSON with UTF-8."""
-    from ollamachat.core.conversation import Conversation
+    from bellbird.core.conversation import Conversation
 
     conv = Conversation()
     conv.add_message("user", "Hola")
@@ -131,7 +131,7 @@ def test_save_to_disk(tmp_path):
 
 def test_load_from_disk(tmp_path):
     """Given a saved file, load returns an equivalent conversation."""
-    from ollamachat.core.conversation import Conversation
+    from bellbird.core.conversation import Conversation
 
     conv = Conversation()
     conv.add_message("user", "Hola")
@@ -149,7 +149,7 @@ def test_load_from_disk(tmp_path):
 
 def test_load_missing_file_raises(tmp_path):
     """Given no file, load raises FileNotFoundError."""
-    from ollamachat.core.conversation import Conversation
+    from bellbird.core.conversation import Conversation
 
     missing = tmp_path / "missing.json"
     with pytest.raises(FileNotFoundError) as exc_info:
@@ -159,7 +159,7 @@ def test_load_missing_file_raises(tmp_path):
 
 def test_atomic_write_uses_tmp(tmp_path):
     """Given save, the write goes to .tmp first then replaces target."""
-    from ollamachat.core.conversation import Conversation
+    from bellbird.core.conversation import Conversation
 
     conv = Conversation()
     conv.add_message("user", "test")
@@ -180,7 +180,7 @@ def test_atomic_write_uses_tmp(tmp_path):
 
 def test_clear_empties_messages():
     """Given a conversation with messages, clear empties them."""
-    from ollamachat.core.conversation import Conversation
+    from bellbird.core.conversation import Conversation
 
     conv = Conversation()
     conv.add_message("user", "Hola")
@@ -193,7 +193,7 @@ def test_clear_empties_messages():
 
 def test_clear_allows_reuse():
     """Given a cleared conversation, adding new messages works."""
-    from ollamachat.core.conversation import Conversation
+    from bellbird.core.conversation import Conversation
 
     conv = Conversation()
     conv.add_message("user", "Hola")
@@ -209,7 +209,7 @@ def test_clear_allows_reuse():
 
 def test_images_preserve_order():
     """Given multiple images, get_messages_for_api preserves order."""
-    from ollamachat.core.conversation import Conversation
+    from bellbird.core.conversation import Conversation
 
     conv = Conversation()
     conv.add_message("user", "ver", images=["img1", "img2", "img3"])
@@ -222,7 +222,7 @@ def test_images_preserve_order():
 
 def test_save_includes_system_prompt(tmp_path):
     """Given save with system_prompt, the JSON file includes the field."""
-    from ollamachat.core.conversation import Conversation
+    from bellbird.core.conversation import Conversation
 
     conv = Conversation()
     conv.add_message("user", "Hola")
@@ -239,7 +239,7 @@ def test_save_includes_system_prompt(tmp_path):
 
 def test_load_returns_system_prompt(tmp_path):
     """Given a file with system_prompt, load returns tuple with it."""
-    from ollamachat.core.conversation import Conversation
+    from bellbird.core.conversation import Conversation
 
     filepath = tmp_path / "chat.json"
     data = {
@@ -260,7 +260,7 @@ def test_load_returns_system_prompt(tmp_path):
 
 def test_load_missing_system_prompt_returns_empty_string(tmp_path):
     """Given a v0.2.0 file (no system_prompt), load returns empty string."""
-    from ollamachat.core.conversation import Conversation
+    from bellbird.core.conversation import Conversation
 
     filepath = tmp_path / "chat.json"
     data = {
@@ -279,7 +279,7 @@ def test_load_missing_system_prompt_returns_empty_string(tmp_path):
 
 def test_add_tool_message_with_tool_call_id():
     """Given a tool message with tool_call_id, the field is persisted."""
-    from ollamachat.core.conversation import Conversation
+    from bellbird.core.conversation import Conversation
 
     conv = Conversation()
     conv.add_message("tool", "ls output", tool_call_id="call_abc123")
@@ -292,7 +292,7 @@ def test_add_non_tool_message_omits_tool_call_id():
     tool_call_id is meaningful only for role="tool". For other roles, the
     parameter is silently ignored to avoid pollution.
     """
-    from ollamachat.core.conversation import Conversation
+    from bellbird.core.conversation import Conversation
 
     conv = Conversation()
     conv.add_message("user", "hola", tool_call_id="ignored")
@@ -309,7 +309,7 @@ def test_get_messages_includes_tool_call_id():
     llama-server requires the tool message to carry the same
     tool_call_id as the assistant's tool_calls[].id.
     """
-    from ollamachat.core.conversation import Conversation
+    from bellbird.core.conversation import Conversation
 
     conv = Conversation()
     conv.add_message("tool", "ls output", tool_call_id="call_abc123")
@@ -320,7 +320,7 @@ def test_get_messages_includes_tool_call_id():
 
 def test_get_messages_omits_tool_call_id_when_not_set():
     """Given a tool message without tool_call_id, get_messages_for_api omits the key."""
-    from ollamachat.core.conversation import Conversation
+    from bellbird.core.conversation import Conversation
 
     conv = Conversation()
     conv.add_message("tool", "ls output")
@@ -330,7 +330,7 @@ def test_get_messages_omits_tool_call_id_when_not_set():
 
 def test_tool_call_id_round_trip_through_save_load(tmp_path):
     """Given a tool message with tool_call_id, save+load preserves the field."""
-    from ollamachat.core.conversation import Conversation
+    from bellbird.core.conversation import Conversation
 
     conv = Conversation()
     conv.add_message("user", "ls please")

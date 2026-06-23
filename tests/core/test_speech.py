@@ -12,7 +12,7 @@ import pytest
 def _reload_speech():
     """Remove speech from sys.modules so it re-imports on next access."""
     for mod in list(sys.modules.keys()):
-        if "ollamachat.core.speech" in mod or "ollamachat" in mod:
+        if "bellbird.core.speech" in mod or "bellbird" in mod:
             del sys.modules[mod]
 
 
@@ -62,7 +62,7 @@ def mock_auto():
 
 def test_constructor_with_available_output(mock_auto):
     """Given a stubbed accessible_output2, Speech() is not silent."""
-    from ollamachat.core.speech import Speech
+    from bellbird.core.speech import Speech
 
     speech = Speech()
     assert speech._output is not None
@@ -79,7 +79,7 @@ def test_constructor_import_error():
 
     _reload_speech()
 
-    from ollamachat.core.speech import Speech
+    from bellbird.core.speech import Speech
 
     speech = Speech()
     assert speech._output is None
@@ -97,7 +97,7 @@ def test_constructor_oserror():
         side_effect=OSError("No TTS engine"),
     ):
         _reload_speech()
-        from ollamachat.core.speech import Speech
+        from bellbird.core.speech import Speech
 
         speech = Speech()
         assert speech.is_silent
@@ -109,7 +109,7 @@ def test_constructor_oserror():
 
 def test_speak_with_output(mock_auto):
     """Given a working output, speak delegates correctly."""
-    from ollamachat.core.speech import Speech
+    from bellbird.core.speech import Speech
 
     speech = Speech()
     speech.speak("Hola", interrupt=True)
@@ -118,7 +118,7 @@ def test_speak_with_output(mock_auto):
 
 def test_speak_when_silent():
     """Given silent speech, speak does nothing and raises no exception."""
-    from ollamachat.core.speech import Speech
+    from bellbird.core.speech import Speech
 
     speech = Speech()
     speech._output = None  # force silent
@@ -129,7 +129,7 @@ def test_speak_when_silent():
 
 def test_speak_with_non_string_text(mock_auto):
     """Given non-string text, speak does not raise."""
-    from ollamachat.core.speech import Speech
+    from bellbird.core.speech import Speech
 
     speech = Speech()
     speech.speak(None)  # should not raise
@@ -140,7 +140,7 @@ def test_speak_with_non_string_text(mock_auto):
 
 def test_output_when_available(mock_auto):
     """Given a working output, output delegates correctly."""
-    from ollamachat.core.speech import Speech
+    from bellbird.core.speech import Speech
 
     speech = Speech()
     speech.output("Línea en braille")
@@ -149,7 +149,7 @@ def test_output_when_available(mock_auto):
 
 def test_output_when_silent():
     """Given silent speech, output does not raise."""
-    from ollamachat.core.speech import Speech
+    from bellbird.core.speech import Speech
 
     speech = Speech()
     speech._output = None
@@ -163,7 +163,7 @@ def test_output_when_silent():
 
 def test_stop_when_available(mock_auto):
     """Given a working output, stop delegates correctly."""
-    from ollamachat.core.speech import Speech
+    from bellbird.core.speech import Speech
 
     speech = Speech()
     speech.stop()
@@ -172,7 +172,7 @@ def test_stop_when_available(mock_auto):
 
 def test_stop_when_silent():
     """Given silent speech, stop does not raise."""
-    from ollamachat.core.speech import Speech
+    from bellbird.core.speech import Speech
 
     speech = Speech()
     speech._output = None
@@ -186,7 +186,7 @@ def test_stop_when_silent():
 
 def test_short_token_no_flush(mock_auto):
     """Given a short token, buffer accumulates without flushing."""
-    from ollamachat.core.speech import Speech
+    from bellbird.core.speech import Speech
 
     speech = Speech()
     speech.announce_token_chunk("Ho")
@@ -196,7 +196,7 @@ def test_short_token_no_flush(mock_auto):
 
 def test_sentence_terminator_flush(mock_auto):
     """Given a sentence terminator, buffer flushes."""
-    from ollamachat.core.speech import Speech
+    from bellbird.core.speech import Speech
 
     speech = Speech()
     speech._buffer = "Hola."
@@ -207,7 +207,7 @@ def test_sentence_terminator_flush(mock_auto):
 
 def test_eighty_char_fallback_flush(mock_auto):
     """Given 81-char token, buffer flushes immediately."""
-    from ollamachat.core.speech import Speech
+    from bellbird.core.speech import Speech
 
     speech = Speech()
     speech.announce_token_chunk("a" * 81)
@@ -217,7 +217,7 @@ def test_eighty_char_fallback_flush(mock_auto):
 
 def test_question_mark_flush(mock_auto):
     """Given a question mark, buffer flushes."""
-    from ollamachat.core.speech import Speech
+    from bellbird.core.speech import Speech
 
     speech = Speech()
     speech._buffer = "¿Qué tal"
@@ -228,7 +228,7 @@ def test_question_mark_flush(mock_auto):
 
 def test_newline_flush(mock_auto):
     """Given a newline, buffer flushes."""
-    from ollamachat.core.speech import Speech
+    from bellbird.core.speech import Speech
 
     speech = Speech()
     speech._buffer = "primera línea"
@@ -244,7 +244,7 @@ def test_newline_flush(mock_auto):
 
 def test_flush_non_empty_buffer(mock_auto):
     """Given a non-empty buffer, flush speaks and clears."""
-    from ollamachat.core.speech import Speech
+    from bellbird.core.speech import Speech
 
     speech = Speech()
     speech._buffer = "fragmento pendiente"
@@ -257,7 +257,7 @@ def test_flush_non_empty_buffer(mock_auto):
 
 def test_flush_empty_buffer_noop(mock_auto):
     """Given an empty buffer, flush does nothing."""
-    from ollamachat.core.speech import Speech
+    from bellbird.core.speech import Speech
 
     speech = Speech()
     speech._buffer = ""
@@ -270,7 +270,7 @@ def test_flush_empty_buffer_noop(mock_auto):
 
 def test_output_raises_mid_call(mock_auto):
     """Given output.output raises, the method catches and returns None."""
-    from ollamachat.core.speech import Speech
+    from bellbird.core.speech import Speech
 
     mock_auto.return_value.output.side_effect = RuntimeError("TTS failed")
     speech = Speech()
@@ -280,7 +280,7 @@ def test_output_raises_mid_call(mock_auto):
 
 def test_speak_raises_mid_call(mock_auto):
     """Given output.speak raises, the method catches and returns None."""
-    from ollamachat.core.speech import Speech
+    from bellbird.core.speech import Speech
 
     mock_auto.return_value.speak.side_effect = OSError("TTS engine crashed")
     speech = Speech()
@@ -293,7 +293,7 @@ def test_speak_raises_mid_call(mock_auto):
 
 def test_is_screen_reader_active_true(mock_auto):
     """Given the TTS backend is a real screen reader, returns True."""
-    from ollamachat.core.speech import Speech
+    from bellbird.core.speech import Speech
 
     mock_auto.return_value.is_system_output.return_value = False
     speech = Speech()
@@ -302,7 +302,7 @@ def test_is_screen_reader_active_true(mock_auto):
 
 def test_is_screen_reader_active_false_when_system_output(mock_auto):
     """Given the TTS backend is a generic system voice, returns False."""
-    from ollamachat.core.speech import Speech
+    from bellbird.core.speech import Speech
 
     mock_auto.return_value.is_system_output.return_value = True
     speech = Speech()
@@ -311,7 +311,7 @@ def test_is_screen_reader_active_false_when_system_output(mock_auto):
 
 def test_is_screen_reader_active_false_in_silent_mode():
     """Given the wrapper is in silent mode, returns False even if probed."""
-    from ollamachat.core.speech import Speech
+    from bellbird.core.speech import Speech
 
     speech = Speech()
     # Force silent mode
@@ -322,7 +322,7 @@ def test_is_screen_reader_active_false_in_silent_mode():
 
 def test_is_screen_reader_active_swallows_probe_exception(mock_auto):
     """Given is_system_output raises, returns False (never-crash contract)."""
-    from ollamachat.core.speech import Speech
+    from bellbird.core.speech import Speech
 
     mock_auto.return_value.is_system_output.side_effect = RuntimeError(
         "probe failed"

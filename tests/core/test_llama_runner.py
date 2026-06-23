@@ -18,18 +18,18 @@ class TestLlamaRunner:
 
     def test_find_llama_server_found_in_path(self):
         """Given shutil.which returns a path, find_llama_server returns it."""
-        with patch("ollamachat.core.llama_runner.shutil.which") as mock_which:
+        with patch("bellbird.core.llama_runner.shutil.which") as mock_which:
             mock_which.return_value = "/usr/bin/llama-server"
-            from ollamachat.core.llama_runner import find_llama_server
+            from bellbird.core.llama_runner import find_llama_server
 
             result = find_llama_server()
             assert result == "/usr/bin/llama-server"
 
     def test_find_llama_server_returns_none(self):
         """Given shutil.which returns None, find_llama_server returns None."""
-        with patch("ollamachat.core.llama_runner.shutil.which") as mock_which:
+        with patch("bellbird.core.llama_runner.shutil.which") as mock_which:
             mock_which.return_value = None
-            from ollamachat.core.llama_runner import find_llama_server
+            from bellbird.core.llama_runner import find_llama_server
 
             result = find_llama_server()
             assert result is None
@@ -41,7 +41,7 @@ class TestLlamaRunner:
         even when extra_paths contains real .gguf files (REQ-LLAMA-006)."""
         (tmp_path / "x.gguf").write_text("")
 
-        from ollamachat.core.llama_runner import find_gguf_models
+        from bellbird.core.llama_runner import find_gguf_models
 
         result = find_gguf_models(extra_paths=[str(tmp_path)])
         assert result == []
@@ -52,12 +52,12 @@ class TestLlamaRunner:
         (tmp_path / "b.gguf").write_text("")
         (tmp_path / "c.safetensors").write_text("")
 
-        from ollamachat.core.llama_runner import find_gguf_models
+        from bellbird.core.llama_runner import find_gguf_models
 
         with patch(
-            "ollamachat.core.llama_runner._is_windows", return_value=True
+            "bellbird.core.llama_runner._is_windows", return_value=True
         ), patch(
-            "ollamachat.core.llama_runner._get_standard_paths",
+            "bellbird.core.llama_runner._get_standard_paths",
             return_value=[str(tmp_path)],
         ):
             result = find_gguf_models(extra_paths=[str(tmp_path)])
@@ -69,12 +69,12 @@ class TestLlamaRunner:
 
     def test_find_gguf_models_skips_nonexistent_dirs(self):
         """Given non-existent extra_paths, returns [] without raising."""
-        from ollamachat.core.llama_runner import find_gguf_models
+        from bellbird.core.llama_runner import find_gguf_models
 
         with patch(
-            "ollamachat.core.llama_runner._is_windows", return_value=True
+            "bellbird.core.llama_runner._is_windows", return_value=True
         ), patch(
-            "ollamachat.core.llama_runner._get_standard_paths", return_value=[]
+            "bellbird.core.llama_runner._get_standard_paths", return_value=[]
         ):
             result = find_gguf_models(extra_paths=["/does/not/exist"])
         assert result == []
@@ -83,12 +83,12 @@ class TestLlamaRunner:
         """Given extra_paths with .gguf, returns it."""
         (tmp_path / "phi-3.gguf").write_text("")
 
-        from ollamachat.core.llama_runner import find_gguf_models
+        from bellbird.core.llama_runner import find_gguf_models
 
         with patch(
-            "ollamachat.core.llama_runner._is_windows", return_value=True
+            "bellbird.core.llama_runner._is_windows", return_value=True
         ), patch(
-            "ollamachat.core.llama_runner._get_standard_paths", return_value=[]
+            "bellbird.core.llama_runner._get_standard_paths", return_value=[]
         ):
             result = find_gguf_models(extra_paths=[str(tmp_path)])
         assert len(result) == 1
@@ -109,15 +109,15 @@ class TestLlamaRunner:
         d7.mkdir(parents=True)
         (d7 / "depth7.gguf").write_text("")
 
-        from ollamachat.core.llama_runner import find_gguf_models
+        from bellbird.core.llama_runner import find_gguf_models
 
         # Make the recursive HF cache (index 2) point at our tmp_path.
         # Other standard paths are non-existent and will be skipped.
         standard = ["/nonexistent", "/nonexistent", str(tmp_path), "/nonexistent"]
         with patch(
-            "ollamachat.core.llama_runner._is_windows", return_value=True
+            "bellbird.core.llama_runner._is_windows", return_value=True
         ), patch(
-            "ollamachat.core.llama_runner._get_standard_paths",
+            "bellbird.core.llama_runner._get_standard_paths",
             return_value=standard,
         ):
             result = find_gguf_models()
@@ -132,12 +132,12 @@ class TestLlamaRunner:
     def test_find_gguf_models_is_windows_guard(self):
         """When _is_windows returns False, find_gguf_models returns [] regardless
         of extra_paths (the platform gate is the first check)."""
-        from ollamachat.core.llama_runner import find_gguf_models
+        from bellbird.core.llama_runner import find_gguf_models
 
         # Real WSL is non-Windows, so the default behavior is already [].
         # This test asserts the platform gate explicitly.
         with patch(
-            "ollamachat.core.llama_runner._is_windows", return_value=False
+            "bellbird.core.llama_runner._is_windows", return_value=False
         ):
             result = find_gguf_models(extra_paths=["/nonexistent/x.gguf"])
         assert result == []
@@ -146,7 +146,7 @@ class TestLlamaRunner:
 
     def test_get_install_command_returns_literal(self):
         """get_install_command returns the literal string."""
-        from ollamachat.core.llama_runner import get_install_command
+        from bellbird.core.llama_runner import get_install_command
 
         result = get_install_command()
         assert result == "winget install ggml.llamacpp"
@@ -163,8 +163,8 @@ class TestLlamaRunner:
         """Given check_running returns True, returns (True, '...corriendo') without Popen."""
         client = self._make_client(check_running_result=True)
 
-        with patch("ollamachat.core.llama_runner.subprocess.Popen") as popen:
-            from ollamachat.core.llama_runner import start_server
+        with patch("bellbird.core.llama_runner.subprocess.Popen") as popen:
+            from bellbird.core.llama_runner import start_server
 
             ok, message = start_server("/fake/model.gguf", client, timeout=0.5)
 
@@ -182,10 +182,10 @@ class TestLlamaRunner:
         popen_mock.poll.return_value = None
 
         with patch(
-            "ollamachat.core.llama_runner.subprocess.Popen",
+            "bellbird.core.llama_runner.subprocess.Popen",
             return_value=popen_mock,
         ) as popen_patch:
-            from ollamachat.core.llama_runner import start_server
+            from bellbird.core.llama_runner import start_server
 
             start_server("/fake/model.gguf", client, timeout=0.5)
 
@@ -208,8 +208,8 @@ class TestLlamaRunner:
         popen_mock = MagicMock()
         popen_mock.poll.return_value = None
 
-        with patch("ollamachat.core.llama_runner.subprocess.Popen", return_value=popen_mock):
-            from ollamachat.core.llama_runner import start_server
+        with patch("bellbird.core.llama_runner.subprocess.Popen", return_value=popen_mock):
+            from bellbird.core.llama_runner import start_server
 
             ok, message = start_server("/fake/model.gguf", client, timeout=1.0)
 
@@ -227,8 +227,8 @@ class TestLlamaRunner:
         popen_mock = MagicMock()
         popen_mock.poll.return_value = None
 
-        with patch("ollamachat.core.llama_runner.subprocess.Popen", return_value=popen_mock):
-            from ollamachat.core.llama_runner import start_server
+        with patch("bellbird.core.llama_runner.subprocess.Popen", return_value=popen_mock):
+            from bellbird.core.llama_runner import start_server
 
             ok, message = start_server("/fake/model.gguf", client, timeout=0.5)
 
@@ -239,10 +239,10 @@ class TestLlamaRunner:
         """Given Popen raises FileNotFoundError, returns (False, error msg)."""
         client = self._make_client(check_running_result=False)
 
-        from ollamachat.core.llama_runner import start_server
+        from bellbird.core.llama_runner import start_server
 
         # Popen already patched at module level in the import; we need to patch at the right place
-        with patch("ollamachat.core.llama_runner.subprocess.Popen",
+        with patch("bellbird.core.llama_runner.subprocess.Popen",
                    side_effect=FileNotFoundError("No such file: llama-server")):
             ok, message = start_server("/fake/model.gguf", client, timeout=0.5)
 
@@ -258,7 +258,7 @@ class TestLlamaRunner:
         runs once (and returns False), then Popen is invoked, then
         proc.poll() detects the early exit. The poll LOOP must not run.
         """
-        import ollamachat.core.llama_runner as runner_mod
+        import bellbird.core.llama_runner as runner_mod
         runner_mod._server_process = None
 
         client = self._make_client(check_running_result=False)
@@ -266,9 +266,9 @@ class TestLlamaRunner:
         dead_proc = MagicMock()
         dead_proc.poll.return_value = 1  # already exited with code 1
 
-        with patch("ollamachat.core.llama_runner.subprocess.Popen",
+        with patch("bellbird.core.llama_runner.subprocess.Popen",
                    return_value=dead_proc):
-            from ollamachat.core.llama_runner import start_server
+            from bellbird.core.llama_runner import start_server
 
             ok, message = start_server("/fake/model.gguf", client, timeout=10.0)
 
@@ -296,13 +296,13 @@ class TestLlamaRunner:
             processes.append(proc)
             return proc
 
-        with patch("ollamachat.core.llama_runner.subprocess.Popen",
+        with patch("bellbird.core.llama_runner.subprocess.Popen",
                    side_effect=popen_side_effect) as popen:
             # Reset module-level state
-            import ollamachat.core.llama_runner as runner_mod
+            import bellbird.core.llama_runner as runner_mod
             runner_mod._server_process = None
 
-            from ollamachat.core.llama_runner import start_server, stop_server
+            from bellbird.core.llama_runner import start_server, stop_server
 
             # First call: spawn tracked process
             ok1, msg1 = start_server("/fake/model1.gguf", client, timeout=0.5)
@@ -333,11 +333,11 @@ class TestLlamaRunner:
 
     def test_stop_server_graceful_exit(self):
         """Given a tracked process that exits on terminate, kill is NOT called."""
-        import ollamachat.core.llama_runner as runner_mod
+        import bellbird.core.llama_runner as runner_mod
         runner_mod._server_process = None
 
-        with patch("ollamachat.core.llama_runner.subprocess.Popen") as popen:
-            from ollamachat.core.llama_runner import stop_server
+        with patch("bellbird.core.llama_runner.subprocess.Popen") as popen:
+            from bellbird.core.llama_runner import stop_server
 
             proc = MagicMock()
             proc.poll.return_value = None  # alive
@@ -353,13 +353,13 @@ class TestLlamaRunner:
 
     def test_stop_server_kill_fallback(self):
         """Given a tracked process that ignores terminate, kill is called."""
-        import ollamachat.core.llama_runner as runner_mod
+        import bellbird.core.llama_runner as runner_mod
         runner_mod._server_process = None
 
         # Mock time.sleep to speed up the 5s wait
-        with patch("ollamachat.core.llama_runner.time.sleep"), \
-             patch("ollamachat.core.llama_runner.subprocess.Popen") as popen:
-            from ollamachat.core.llama_runner import stop_server
+        with patch("bellbird.core.llama_runner.time.sleep"), \
+             patch("bellbird.core.llama_runner.subprocess.Popen") as popen:
+            from bellbird.core.llama_runner import stop_server
 
             proc = MagicMock()
             proc.poll.return_value = None  # Never exits
@@ -373,10 +373,10 @@ class TestLlamaRunner:
 
     def test_stop_server_no_op_when_idle(self):
         """Given no tracked process, stop_server is a no-op."""
-        import ollamachat.core.llama_runner as runner_mod
+        import bellbird.core.llama_runner as runner_mod
         runner_mod._server_process = None
 
-        from ollamachat.core.llama_runner import stop_server
+        from bellbird.core.llama_runner import stop_server
 
         # Should not raise
         stop_server()

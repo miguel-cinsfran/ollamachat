@@ -1,6 +1,6 @@
 # Changelog
 
-Todas las versiones notables del proyecto OllamaChat.
+Todas las versiones notables del proyecto Bellbird.
 
 ## [Pendiente] — Roadmap
 

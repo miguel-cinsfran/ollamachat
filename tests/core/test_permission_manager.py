@@ -3,7 +3,7 @@ system-destructive detection, and session grant management."""
 
 import pytest
 
-from ollamachat.core.permission_manager import PermissionManager, RiskLevel
+from bellbird.core.permission_manager import PermissionManager, RiskLevel
 
 
 class TestPermissionManager:

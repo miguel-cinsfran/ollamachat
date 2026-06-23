@@ -12,7 +12,7 @@ def _get_ui_path(filename: str) -> pathlib.Path:
     """Resolve the source file path for a UI module."""
     return (
         pathlib.Path(__file__).resolve().parent.parent.parent
-        / "ollamachat"
+        / "bellbird"
         / "ui"
         / filename
     )

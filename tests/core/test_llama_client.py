@@ -71,7 +71,7 @@ class TestLlamaClient:
         mock_response.json.return_value = {"status": "ok"}
         mock_session.get.return_value = mock_response
 
-        from ollamachat.core.llama_client import LlamaClient
+        from bellbird.core.llama_client import LlamaClient
 
         client = LlamaClient(session=mock_session)
         assert client.check_running() is True
@@ -80,7 +80,7 @@ class TestLlamaClient:
         """Given ConnectionError, check_running returns False."""
         mock_session.get.side_effect = requests.ConnectionError("refused")
 
-        from ollamachat.core.llama_client import LlamaClient
+        from bellbird.core.llama_client import LlamaClient
 
         client = LlamaClient(session=mock_session)
         assert client.check_running() is False
@@ -91,7 +91,7 @@ class TestLlamaClient:
         mock_response.status_code = 503
         mock_session.get.return_value = mock_response
 
-        from ollamachat.core.llama_client import LlamaClient
+        from bellbird.core.llama_client import LlamaClient
 
         client = LlamaClient(session=mock_session)
         assert client.check_running() is False
@@ -100,7 +100,7 @@ class TestLlamaClient:
         """Given requests.Timeout, check_running returns False."""
         mock_session.get.side_effect = requests.exceptions.Timeout("timed out")
 
-        from ollamachat.core.llama_client import LlamaClient
+        from bellbird.core.llama_client import LlamaClient
 
         client = LlamaClient(session=mock_session)
         assert client.check_running() is False
@@ -116,7 +116,7 @@ class TestLlamaClient:
         }
         mock_session.get.return_value = mock_response
 
-        from ollamachat.core.llama_client import LlamaClient
+        from bellbird.core.llama_client import LlamaClient
 
         client = LlamaClient(session=mock_session)
         result = client.get_loaded_model()
@@ -126,7 +126,7 @@ class TestLlamaClient:
         """Given ConnectionError, get_loaded_model returns ''."""
         mock_session.get.side_effect = requests.ConnectionError("refused")
 
-        from ollamachat.core.llama_client import LlamaClient
+        from bellbird.core.llama_client import LlamaClient
 
         client = LlamaClient(session=mock_session)
         assert client.get_loaded_model() == ""
@@ -158,7 +158,7 @@ class TestLlamaClient:
             b'data: [DONE]',
         ])
 
-        from ollamachat.core.llama_client import LlamaClient
+        from bellbird.core.llama_client import LlamaClient
 
         client = LlamaClient(session=mock_session)
         on_token = Mock()
@@ -178,7 +178,7 @@ class TestLlamaClient:
         """Given ConnectionError in POST, on_error fires with error text."""
         mock_session.post.side_effect = requests.ConnectionError("Connection refused")
 
-        from ollamachat.core.llama_client import LlamaClient
+        from bellbird.core.llama_client import LlamaClient
 
         client = LlamaClient(session=mock_session)
         on_token = Mock()
@@ -207,7 +207,7 @@ class TestLlamaClient:
             b'data: [DONE]',
         ])
 
-        from ollamachat.core.llama_client import LlamaClient
+        from bellbird.core.llama_client import LlamaClient
 
         client = LlamaClient(session=mock_session)
         client.chat_stream(messages, options, Mock(), Mock(), Mock())
@@ -234,7 +234,7 @@ class TestLlamaClient:
             b'data: [DONE]',
         ])
 
-        from ollamachat.core.llama_client import LlamaClient
+        from bellbird.core.llama_client import LlamaClient
 
         client = LlamaClient(session=mock_session)
         on_token = Mock()
@@ -265,7 +265,7 @@ class TestLlamaClient:
             b'data: [DONE]',
         ])
 
-        from ollamachat.core.llama_client import LlamaClient
+        from bellbird.core.llama_client import LlamaClient
 
         client = LlamaClient(session=mock_session)
         on_token = Mock()
@@ -302,7 +302,7 @@ class TestLlamaClient:
         ctx.__exit__.return_value = False
         mock_session.post.return_value = ctx
 
-        from ollamachat.core.llama_client import LlamaClient
+        from bellbird.core.llama_client import LlamaClient
 
         client = LlamaClient(session=mock_session)
         on_token = Mock()
@@ -322,7 +322,7 @@ class TestLlamaClient:
 
     def test_abort_is_noop_when_idle(self, mock_session, mock_call_after):
         """Given abort before any stream, no exception and no callbacks."""
-        from ollamachat.core.llama_client import LlamaClient
+        from bellbird.core.llama_client import LlamaClient
 
         client = LlamaClient(session=mock_session)
         # Should not raise
@@ -341,7 +341,7 @@ class TestLlamaClient:
             b'data: [DONE]',
         ])
 
-        from ollamachat.core.llama_client import LlamaClient
+        from bellbird.core.llama_client import LlamaClient
 
         client = LlamaClient(session=mock_session)
         on_token = Mock()
@@ -368,7 +368,7 @@ class TestLlamaClient:
             b'data: [DONE]',
         ])
 
-        from ollamachat.core.llama_client import LlamaClient
+        from bellbird.core.llama_client import LlamaClient
 
         client = LlamaClient(session=mock_session)
         on_token = Mock()
@@ -393,7 +393,7 @@ class TestLlamaClient:
             b'data: [DONE]',
         ])
 
-        from ollamachat.core.llama_client import LlamaClient
+        from bellbird.core.llama_client import LlamaClient
 
         client = LlamaClient(session=mock_session)
         on_token = Mock()
@@ -416,7 +416,7 @@ class TestLlamaClient:
             b'data: [DONE]',
         ])
 
-        from ollamachat.core.llama_client import LlamaClient
+        from bellbird.core.llama_client import LlamaClient
 
         client = LlamaClient(session=mock_session)
         on_token = Mock()
@@ -441,7 +441,7 @@ class TestLlamaClient:
             b'data: [DONE]',
         ])
 
-        from ollamachat.core.llama_client import LlamaClient
+        from bellbird.core.llama_client import LlamaClient
 
         client = LlamaClient(session=mock_session)
         on_token = Mock()
@@ -472,7 +472,7 @@ class TestLlamaClient:
             b'data: [DONE]',
         ])
 
-        from ollamachat.core.llama_client import LlamaClient
+        from bellbird.core.llama_client import LlamaClient
 
         client = LlamaClient(session=mock_session)
         on_token = Mock()
@@ -500,7 +500,7 @@ class TestLlamaClient:
             b'data: [DONE]',
         ])
 
-        from ollamachat.core.llama_client import LlamaClient
+        from bellbird.core.llama_client import LlamaClient
 
         client = LlamaClient(session=mock_session)
         on_tool_call = Mock()
@@ -528,7 +528,7 @@ class TestLlamaClient:
             b'data: [DONE]',
         ])
 
-        from ollamachat.core.llama_client import LlamaClient
+        from bellbird.core.llama_client import LlamaClient
 
         client = LlamaClient(session=mock_session)
         on_tool_call = Mock()

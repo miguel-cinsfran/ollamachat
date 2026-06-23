@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from ollamachat.core.tool_executor import ToolExecutor, ToolResult
+from bellbird.core.tool_executor import ToolExecutor, ToolResult
 
 
 class TestToolExecutor:
@@ -51,7 +51,7 @@ class TestToolExecutor:
     def test_max_output_truncated(self):
         """Given stdout longer than MAX_OUTPUT_CHARS, it is truncated."""
         with patch("sys.platform", "win32"), patch(
-            "ollamachat.core.tool_executor.subprocess.run"
+            "bellbird.core.tool_executor.subprocess.run"
         ) as mock_run:
             mock_result = Mock()
             mock_result.stdout = "x" * 5000
@@ -68,7 +68,7 @@ class TestToolExecutor:
         """Given both stdout and stderr exceed MAX_OUTPUT_CHARS, both are
         truncated independently — long stderr does not eat into stdout budget."""
         with patch("sys.platform", "win32"), patch(
-            "ollamachat.core.tool_executor.subprocess.run"
+            "bellbird.core.tool_executor.subprocess.run"
         ) as mock_run:
             mock_result = Mock()
             mock_result.stdout = "a" * 5000
@@ -103,7 +103,7 @@ class TestToolExecutor:
             return mock_r
 
         with patch("sys.platform", "win32"), patch(
-            "ollamachat.core.tool_executor.subprocess.run",
+            "bellbird.core.tool_executor.subprocess.run",
             side_effect=run_side_effect,
         ) as mock_run:
             executor = ToolExecutor()

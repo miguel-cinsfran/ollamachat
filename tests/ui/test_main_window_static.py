@@ -11,7 +11,7 @@ import pathlib
 def _get_ui_path(filename: str) -> pathlib.Path:
     return (
         pathlib.Path(__file__).resolve().parent.parent.parent
-        / "ollamachat"
+        / "bellbird"
         / "ui"
         / filename
     )
@@ -212,16 +212,16 @@ def test_restart_server_button_present():
 
 
 def test_start_server_handler_invokes_runner():
-    """_on_start_server calls start_server from ollamachat.core.llama_runner."""
+    """_on_start_server calls start_server from bellbird.core.llama_runner."""
     source_path = _get_ui_path("main_window.py")
     source = source_path.read_text(encoding="utf-8")
 
     # The handler should import from the new module.
-    assert "from ollamachat.core.llama_runner import" in source, (
-        "MainWindow must import from ollamachat.core.llama_runner"
+    assert "from bellbird.core.llama_runner import" in source, (
+        "MainWindow must import from bellbird.core.llama_runner"
     )
-    assert "from ollamachat.core.llama_client import LlamaClient" in source, (
-        "MainWindow must import LlamaClient from ollamachat.core.llama_client"
+    assert "from bellbird.core.llama_client import LlamaClient" in source, (
+        "MainWindow must import LlamaClient from bellbird.core.llama_client"
     )
     assert "start_server(" in source, (
         "_on_start_server must call start_server"
@@ -235,7 +235,7 @@ def test_main_window_uses_logger():
     """MainWindow uses the logger module (so build/runtime events are recorded)."""
     source_path = _get_ui_path("main_window.py")
     source = source_path.read_text(encoding="utf-8")
-    assert "from ollamachat.core.logger import get_logger" in source
+    assert "from bellbird.core.logger import get_logger" in source
     assert "get_logger()" in source
 
 
@@ -372,7 +372,7 @@ def test_on_close_sets_is_closing_after_confirm_not_before() -> None:
     """
     import re
     from pathlib import Path
-    src = Path("ollamachat/ui/main_window.py").read_text(encoding="utf-8")
+    src = Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
     m = re.search(
         r"def _on_close\(self, event: wx\.CloseEvent\) -> None:.*?"
         r"(?=\n    def |\nclass |\Z)",
@@ -399,7 +399,7 @@ def test_model_load_worker_binds_defaults_before_try() -> None:
     """
     import re
     from pathlib import Path
-    src = Path("ollamachat/ui/main_window.py").read_text(encoding="utf-8")
+    src = Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
     m = re.search(
         r"def _model_load_worker\(self, model: str\) -> None:.*?"
         r"(?=\n    def |\nclass |\Z)",
@@ -591,7 +591,7 @@ def test_on_tool_result_passes_tool_call_id_to_add_message() -> None:
     """
     import re
     from pathlib import Path
-    src = Path("ollamachat/ui/main_window.py").read_text(encoding="utf-8")
+    src = Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
     m = re.search(
         r"def _on_tool_result\(self, result, tool_call_id: str\) -> None:.*?"
         r"(?=\n    def |\nclass |\Z)",

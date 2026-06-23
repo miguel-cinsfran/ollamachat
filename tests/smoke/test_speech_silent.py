@@ -13,12 +13,12 @@ def test_speech_silent_on_import_error():
         if "accessible_output2" in key:
             saved[key] = sys.modules.pop(key)
 
-    # Remove ollamachat.core.speech so it re-imports
+    # Remove bellbird.core.speech so it re-imports
     for key in list(sys.modules.keys()):
-        if "ollamachat" in key:
+        if "bellbird" in key:
             saved[key] = sys.modules.pop(key)
 
-    from ollamachat.core.speech import Speech
+    from bellbird.core.speech import Speech
 
     speech = Speech()
     assert speech.is_silent
