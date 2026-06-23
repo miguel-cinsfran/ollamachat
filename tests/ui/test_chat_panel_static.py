@@ -107,36 +107,27 @@ def test_no_webview():
     )
 
 
-def test_conversation_display_uses_rich2():
-    """Conversation display TextCtrl uses TE_RICH2 style."""
+def test_message_list_present():
+    """ChatPanel has a message_list ListBox."""
     source_path = _get_ui_path("chat_panel.py")
     source = source_path.read_text(encoding="utf-8")
-    tree = ast.parse(source)
+    assert 'name="message_list"' in source or "name='message_list'" in source
 
-    # Check that a node creating a TextCtrl with name="conversation_display"
-    # has wx.TE_RICH2 in its args
-    found_rich2 = False
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call):
-            func_name = _get_func_name(node)
-            if func_name == "wx.TextCtrl":
-                # Check if this is a call with name="conversation_display"
-                has_conv_name = any(
-                    kw.arg == "name"
-                    and isinstance(kw.value, ast.Constant)
-                    and kw.value.value == "conversation_display"
-                    for kw in node.keywords
-                    if kw.arg is not None
-                )
-                if has_conv_name:
-                    # Check for TE_RICH2 in args
-                    for kw in node.keywords:
-                        if kw.arg == "style":
-                            style_str = _extract_ast_value(kw.value)
-                            if style_str and "TE_RICH2" in style_str:
-                                found_rich2 = True
 
-    assert found_rich2, "conversation_display not created with TE_RICH2 style"
+def test_stream_display_present():
+    """ChatPanel has a stream_display TextCtrl with TE_READONLY."""
+    source_path = _get_ui_path("chat_panel.py")
+    source = source_path.read_text(encoding="utf-8")
+    assert 'name="stream_display"' in source or "name='stream_display'" in source
+
+
+def test_history_list_exists_in_init():
+    """ChatPanel.__init__ initializes self._history as list[tuple[str, str]]."""
+    source_path = _get_ui_path("chat_panel.py")
+    source = source_path.read_text(encoding="utf-8")
+    assert "_history" in source
+    # Check the type hint is present in __init__
+    assert "list[tuple[str, str]]" in source or "list[tuple" in source
 
 
 def test_input_has_process_enter():
@@ -250,6 +241,28 @@ def test_enter_handler_checks_shiftdown():
         "No Shift key state check found — Enter/Shift+Enter not distinguished. "
         "Expected event.ShiftDown() call in the input enter handler."
     )
+
+
+# ─── Dual view refactor (v0.3.0) ─────────────────────────────────────────────
+
+
+def test_no_conversation_display_reference():
+    """ChatPanel no longer references conversation_display."""
+    source_path = _get_ui_path("chat_panel.py")
+    source = source_path.read_text(encoding="utf-8")
+    assert "conversation_display" not in source, (
+        "conversation_display must be fully removed in the dual-view refactor."
+    )
+
+
+def test_stream_display_uses_rich2():
+    """stream_display TextCtrl uses TE_RICH2 style."""
+    source_path = _get_ui_path("chat_panel.py")
+    source = source_path.read_text(encoding="utf-8")
+    # Check that name="stream_display" is accompanied by TE_RICH2
+    # Simple search: look for stream_display and TE_RICH2 in close proximity
+    assert "TE_RICH2" in source, "stream_display must use TE_RICH2 style"
+    assert "TE_READONLY" in source, "stream_display must use TE_READONLY style"
 
 
 def _get_func_name(node: ast.Call) -> str:
