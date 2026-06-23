@@ -207,13 +207,18 @@ class ChatPanel(wx.Panel):
         self.stop_button.Enable()
 
     def end_generation(self) -> None:
-        """Move stream content to history and re-enable buttons."""
+        """Move stream content to history and re-enable buttons.
+
+        If the stream is empty (e.g. aborted before the first token),
+        no list item is added — prevents empty "[IA] [Asistente]"
+        rows in the message list when the user aborts immediately.
+        """
         final = self.stream_display.GetValue()
         if final.strip():
             self._history.append(("assistant", final))
-        preview = f"[IA] {self._preview(final)}"
-        self.message_list.Append(preview)
-        self.message_list.SetSelection(self.message_list.GetCount() - 1)
+            preview = f"[IA] {self._preview(final)}"
+            self.message_list.Append(preview)
+            self.message_list.SetSelection(self.message_list.GetCount() - 1)
         self.stream_display.Clear()
         self._is_generating = False
         self.send_button.Enable()

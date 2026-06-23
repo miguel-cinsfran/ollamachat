@@ -265,6 +265,37 @@ def test_stream_display_uses_rich2():
     assert "TE_READONLY" in source, "stream_display must use TE_READONLY style"
 
 
+def test_end_generation_skips_empty_preview() -> None:
+    """Regression for B3: message_list.Append must be inside the strip() guard.
+
+    Without this guard, aborting a stream before the first token
+    arrives leaves a stray "[IA] [Asistente] " row in the list.
+    """
+    import re
+    from pathlib import Path
+    src = Path("ollamachat/ui/chat_panel.py").read_text(encoding="utf-8")
+    m = re.search(
+        r"def end_generation\(self\) -> None:.*?"
+        r"(?=\n    def |\nclass |\Z)",
+        src, re.DOTALL,
+    )
+    assert m is not None, "end_generation not found in chat_panel.py"
+    body = m.group(0)
+    append_pos = body.find("self.message_list.Append(preview)")
+    assert append_pos > 0, "message_list.Append(preview) not found"
+    # The Append must be inside an `if final.strip():` block — i.e. the
+    # most recent occurrence of `if final.strip():` must precede the Append.
+    strip_pos = body.rfind("if final.strip():", 0, append_pos)
+    assert strip_pos > 0, (
+        "message_list.Append(preview) must be inside an "
+        "`if final.strip():` block — currently the Append happens "
+        "unconditionally and leaves stray empty list items"
+    )
+    assert strip_pos < append_pos, (
+        "The `if final.strip():` guard must come BEFORE the Append"
+    )
+
+
 def _get_func_name(node: ast.Call) -> str:
     """Extract the full function name from a Call node."""
     if isinstance(node.func, ast.Attribute):
