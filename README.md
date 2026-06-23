@@ -22,4 +22,8 @@ v0.4.0 — en desarrollo activo. Sin verificación formal con NVDA todavía.
 | F2 | Anunciar estado de sesión |
 | F5 | Buscar modelos disponibles |
 | F6 | Ciclar entre paneles |
+| F7 | Iniciar servidor |
+| Ctrl+F7 | Detener servidor |
+| Ctrl+Enter (en historial) | Abrir mensaje en navegador |
+| Supr (en historial) | Eliminar mensaje seleccionado |
 | Alt+1–6 | Foco directo a controles |
