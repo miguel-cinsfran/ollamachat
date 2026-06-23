@@ -63,7 +63,7 @@ class MessageDetailDialog(wx.Dialog):
         btn_sizer.Add(self.open_browser_button, flag=wx.RIGHT, border=4)
 
         self.copy_button = wx.Button(
-            self, label="Copiar al portapapeles", name="copy_button"
+            self, label="Copiar", name="copy_button"
         )
         self.copy_button.Bind(
             wx.EVT_BUTTON, lambda evt: self._on_copy()

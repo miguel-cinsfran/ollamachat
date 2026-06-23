@@ -60,6 +60,55 @@ def test_copy_button_present():
     assert 'name="copy_button"' in source or "name='copy_button'" in source
 
 
+def test_copy_button_label_is_copiar() -> None:
+    """The copy_button label is 'Copiar', not the verbose 'Copiar al portapapeles'.
+
+    The clipboard is implicit in a 'Copy' button placed in a text
+    context, so the verbose form is redundant and adds visual noise for
+    screen-reader users. The name='copy_button' must stay unchanged —
+    AST checks and runtime logic key off the name, not the label.
+    """
+    source_path = _get_ui_path("message_detail_dialog.py")
+    source = source_path.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    target: ast.Call | None = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and _get_func_name(node) == "wx.Button":
+            for kw in node.keywords:
+                if (
+                    kw.arg == "name"
+                    and isinstance(kw.value, ast.Constant)
+                    and kw.value.value == "copy_button"
+                ):
+                    target = node
+                    break
+            if target is not None:
+                break
+
+    assert target is not None, (
+        "wx.Button with name='copy_button' not found in message_detail_dialog.py"
+    )
+
+    label_value: str | None = None
+    for kw in target.keywords:
+        if kw.arg == "label" and isinstance(kw.value, ast.Constant):
+            raw = kw.value.value
+            if isinstance(raw, str):
+                label_value = raw
+            break
+
+    assert label_value is not None, "copy_button must have a label= argument"
+    assert label_value == "Copiar", (
+        f"copy_button label must be 'Copiar' (the clipboard is implicit "
+        f"in a copy button on a text context). Got: {label_value!r}"
+    )
+    assert "portapapeles" not in label_value, (
+        f"copy_button label must NOT contain 'portapapeles' (verbose). "
+        f"Got: {label_value!r}"
+    )
+
+
 def test_close_button_present():
     """MessageDetailDialog has a close_button Button."""
     source_path = _get_ui_path("message_detail_dialog.py")

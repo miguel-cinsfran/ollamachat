@@ -32,6 +32,7 @@ from bellbird.core.logger import get_logger
 from bellbird.core.speech import Speech
 from bellbird.ui.chat_panel import ChatPanel
 from bellbird.ui.params_panel import ParamsPanel
+from bellbird.core.config import load_config
 from bellbird.core.permission_manager import PermissionManager
 from bellbird.core.tool_executor import ToolExecutor, ToolResult
 from bellbird.ui.permission_dialog import PermissionDialog
@@ -71,7 +72,10 @@ class MainWindow(wx.Frame):
         self, parent: wx.Window | None = None, title: str = "Bellbird"
     ) -> None:
         super().__init__(parent, title=title, size=(1100, 700))
-        self._client = LlamaClient()
+        self._config = load_config()
+        self._client = LlamaClient(
+            base_url=f"http://localhost:{self._config.port}"
+        )
         self._conversation = Conversation()
         self._speech = Speech()
         self._current_response: str = ""
@@ -114,7 +118,7 @@ class MainWindow(wx.Frame):
 
         # ── Top toolbar: server controls ──────────────────────────────
         self.restart_server_button = wx.Button(
-            self, label="Reiniciar servidor", name="restart_server_button"
+            self, label="Iniciar servidor", name="restart_server_button"
         )
         self.restart_server_button.Bind(
             wx.EVT_BUTTON, lambda evt: self._on_start_server()
@@ -404,7 +408,12 @@ class MainWindow(wx.Frame):
         ok = False
         message = "Error: start_server raised an exception"
         try:
-            ok, message = start_server(model, self._client)
+            ok, message = start_server(
+                model, self._client,
+                port=self._config.port,
+                ctx_size=self._config.ctx_size,
+                n_gpu_layers=self._config.n_gpu_layers,
+            )
         except Exception as e:
             message = f"Error: {type(e).__name__}: {e}"
         finally:
@@ -1019,7 +1028,27 @@ class MainWindow(wx.Frame):
     # ── New Conversation ────────────────────────────────────────────────────
 
     def new_conversation(self) -> None:
-        """Start a new conversation, clearing current state."""
+        """Start a new conversation, clearing current state.
+
+        Confirm with the user when there are messages to discard, matching
+        the _on_close pattern. Stock labels (Yes/No) are safe per AGENTS.md:
+        only custom Spanish labels trigger MSAA regressions.
+        """
+        if self._conversation.messages:
+            dlg = wx.MessageDialog(
+                self,
+                message=(
+                    "¿Empezar nueva conversación? "
+                    "Se perderá la conversación actual."
+                ),
+                caption="Nueva conversación",
+                style=wx.YES_NO | wx.NO_DEFAULT | wx.ICON_QUESTION,
+            )
+            result = dlg.ShowModal()
+            dlg.Destroy()
+            if result != wx.ID_YES:
+                return
+
         if self._is_generating:
             self._client.abort()
             self._speech.stop()

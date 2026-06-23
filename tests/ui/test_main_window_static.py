@@ -664,6 +664,43 @@ def test_new_conversation_calls_abort() -> None:
     )
 
 
+def test_new_conversation_has_confirmation() -> None:
+    """new_conversation must ask the user before discarding messages.
+
+    Inconsistency fix: _on_close already confirms when there are
+    unsaved messages, but new_conversation silently deleted the whole
+    conversation. The body must contain a wx.MessageDialog with the
+    YES_NO style flag (a confirmation dialog). Stock Yes/No labels
+    are safe per AGENTS.md (only custom Spanish labels trigger MSAA
+    regressions).
+    """
+    import re
+    source_path = _get_ui_path("main_window.py")
+    source = source_path.read_text(encoding="utf-8")
+    m = re.search(
+        r"def new_conversation\(self\) -> None:.*?"
+        r"(?=\n    def |\nclass |\Z)",
+        source,
+        re.DOTALL,
+    )
+    assert m is not None, "new_conversation method not found in main_window.py"
+    body = m.group(0)
+
+    assert "wx.MessageDialog(" in body, (
+        "new_conversation must show a wx.MessageDialog confirmation "
+        "when there are messages. _on_close already does this; the "
+        "inconsistency is a UX bug."
+    )
+    assert "wx.YES_NO" in body, (
+        "new_conversation's confirmation dialog must use wx.YES_NO "
+        "stock labels (safe per AGENTS.md MSAA rules)."
+    )
+    assert "wx.NO_DEFAULT" in body, (
+        "new_conversation's confirmation dialog must use wx.NO_DEFAULT "
+        "so the safe option (cancel) is the default selection."
+    )
+
+
 def test_on_start_server_does_not_call_start_server_directly() -> None:
     """Regression for BUG 2: _on_start_server must not block the main thread.
 
@@ -988,6 +1025,59 @@ def test_callbacks_guard_on_is_generating() -> None:
 
 
 # ─── v0.4.1 keyboard navigation improvements ────────────────────────────
+
+
+def test_config_loaded_in_init():
+    """MainWindow.__init__ calls load_config() and assigns to self._config
+    BEFORE the LlamaClient constructor that reads self._config.port.
+    Order-aware regression guard for the v0.4.1 init-order bug
+    (see verify-report CRITICAL-1).
+    """
+    source_path = _get_ui_path("main_window.py")
+    source = source_path.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    config_assign_lineno: int | None = None
+    llama_client_call_lineno: int | None = None
+
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.FunctionDef) and node.name == "__init__"):
+            continue
+
+        for child in ast.walk(node):
+            if not isinstance(child, ast.Assign):
+                continue
+            # `self._config = load_config()`
+            if (any(
+                    isinstance(t, ast.Attribute) and t.attr == "_config"
+                    for t in child.targets
+                )
+                and isinstance(child.value, ast.Call)
+                and _get_func_name(child.value) == "load_config"):
+                config_assign_lineno = child.lineno
+
+            # `self._client = LlamaClient(base_url=... self._config.port ...)`
+            if (any(
+                    isinstance(t, ast.Attribute) and t.attr == "_client"
+                    for t in child.targets
+                )
+                and isinstance(child.value, ast.Call)
+                and _get_func_name(child.value) == "LlamaClient"):
+                llama_client_call_lineno = child.lineno
+
+    assert config_assign_lineno is not None, (
+        "self._config = load_config() not found in MainWindow.__init__"
+    )
+    assert llama_client_call_lineno is not None, (
+        "self._client = LlamaClient(...) not found in MainWindow.__init__"
+    )
+    assert config_assign_lineno < llama_client_call_lineno, (
+        f"self._config = load_config() is on line {config_assign_lineno} "
+        f"but self._client = LlamaClient(...) is on line "
+        f"{llama_client_call_lineno}. The config load must happen BEFORE "
+        f"the LlamaClient constructor (regression of v0.4.1 verify-report "
+        f"CRITICAL-1)."
+    )
 
 
 def test_f7_accelerator_defined():
