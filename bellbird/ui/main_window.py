@@ -382,8 +382,7 @@ class MainWindow(wx.Frame):
             wx.AcceleratorEntry(wx.ACCEL_ALT, ord("1"), self.ID_FOCUS_INPUT),
             wx.AcceleratorEntry(wx.ACCEL_ALT, ord("2"), self.ID_FOCUS_LIST),
             wx.AcceleratorEntry(wx.ACCEL_ALT, ord("3"), self.ID_FOCUS_MODEL),
-            wx.AcceleratorEntry(wx.ACCEL_ALT, ord("4"), self.ID_FOCUS_TEMP),
-            wx.AcceleratorEntry(wx.ACCEL_ALT, ord("5"), self.ID_FOCUS_SYSPROMPT),
+            # Alt+4 and Alt+5 removed in v0.5.0 (controls moved to PrefsDialog)
             wx.AcceleratorEntry(wx.ACCEL_ALT, ord("6"), self.ID_FOCUS_USE),
             wx.AcceleratorEntry(wx.ACCEL_NORMAL, wx.WXK_F2, self.ID_F2),
             wx.AcceleratorEntry(wx.ACCEL_NORMAL, wx.WXK_F6, self.ID_F6),
@@ -417,19 +416,11 @@ class MainWindow(wx.Frame):
         )
         self.Bind(
             wx.EVT_MENU,
-            lambda evt: self.params_panel.model_selector.SetFocus(),
+            lambda evt: self.model_selector.SetFocus(),
             id=self.ID_FOCUS_MODEL,
         )
-        self.Bind(
-            wx.EVT_MENU,
-            lambda evt: self.params_panel.temperature_slider.SetFocus(),
-            id=self.ID_FOCUS_TEMP,
-        )
-        self.Bind(
-            wx.EVT_MENU,
-            lambda evt: self.params_panel.system_prompt.SetFocus(),
-            id=self.ID_FOCUS_SYSPROMPT,
-        )
+        # Alt+4 (ID_FOCUS_TEMP) and Alt+5 (ID_FOCUS_SYSPROMPT) removed in
+        # v0.5.0 — those controls live in PreferencesDialog now.
         self.Bind(
             wx.EVT_MENU,
             lambda evt: self._on_focus_use(),
@@ -470,15 +461,15 @@ class MainWindow(wx.Frame):
 
     def _on_focus_use(self) -> None:
         """Focus the use_model_button, falling back to restart_server_button."""
-        if self.params_panel.use_model_button.IsEnabled():
-            self.params_panel.use_model_button.SetFocus()
+        if self.use_model_button.IsEnabled():
+            self.use_model_button.SetFocus()
         else:
             self.restart_server_button.SetFocus()
 
     def _on_f6_cycle(self) -> None:
-        """Cycle focus through main panels: params, list, input, server row."""
+        """Cycle focus through main panels: model selector, list, input, server row."""
         targets = [
-            self.params_panel.model_selector,
+            self.model_selector,
             self.chat_panel.message_list,
             self.chat_panel.message_input,
             self.restart_server_button,
@@ -510,12 +501,12 @@ class MainWindow(wx.Frame):
 
     def _on_use_model(self) -> None:
         """Start llama-server with the selected model in a background thread."""
-        model = self.params_panel.get_model()
+        model = self.get_model()
         if not model or not Path(model).is_file():
             self._speech.speak("Archivo de modelo no encontrado", interrupt=True)
             return
         basename = Path(model).name
-        self.params_panel.use_model_button.Disable()
+        self.use_model_button.Disable()
         self.restart_server_button.Disable()
         self._speech.speak(
             f"Iniciando servidor con {basename}...", interrupt=True
@@ -647,7 +638,7 @@ class MainWindow(wx.Frame):
         """Scan for .gguf files and populate the model selector."""
         log = get_logger()
         paths = find_gguf_models()
-        self.params_panel.set_models(paths)
+        self.set_models(paths)
         if paths:
             log.info(f"Scan: {len(paths)} .gguf file(s) found")
             self._speech.speak(
@@ -664,7 +655,7 @@ class MainWindow(wx.Frame):
         log = get_logger()
         log.info("Start server button clicked")
 
-        model_path = self.params_panel.get_model()
+        model_path = self.get_model()
         if not model_path:
             msg = "Selecciona primero un modelo .gguf"
             self._speech.speak(msg, interrupt=True)
@@ -740,10 +731,10 @@ class MainWindow(wx.Frame):
         """Set initial focus based on server state."""
         if self._client.check_running():
             self.chat_panel.message_input.SetFocus()
-        elif self.params_panel.model_selector.GetCount() > 0:
-            self.params_panel.use_model_button.SetFocus()
+        elif self.model_selector.GetCount() > 0:
+            self.use_model_button.SetFocus()
         else:
-            self.params_panel.scan_models_button.SetFocus()
+            self.scan_models_button.SetFocus()
 
     def _maybe_beep(self) -> None:
         """Emit a Windows beep during token generation (throttled to 1/s)."""
@@ -775,7 +766,7 @@ class MainWindow(wx.Frame):
         if dialog.ShowModal() == wx.ID_OK:
             filepath = dialog.GetPath()
             basename = Path(filepath).name
-            if self.params_panel.add_model(filepath):
+            if self.add_model(filepath):
                 # D4: speak a confirmation so blind users get feedback.
                 self._speech.speak(f"Modelo seleccionado: {basename}", interrupt=True)
             else:
