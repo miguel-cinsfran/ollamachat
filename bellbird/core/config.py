@@ -12,7 +12,7 @@ class BellbirdConfig:
     """User preferences persisted to data/config.json."""
 
     temperature: float = 0.70
-    max_tokens: int = 512
+    max_tokens: int = 4096
     top_p: float = 0.90
     top_k: int = 40
     repeat_penalty: float = 1.10

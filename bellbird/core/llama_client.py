@@ -213,8 +213,10 @@ class LlamaClient:
                 # when finish_reason == "tool_calls".
                 _tc_buffer: dict[int, dict] = {}
                 total_content_len = 0
+                total_reasoning_len = 0
                 chunk_count = 0
                 first_token_logged = False
+                in_reasoning_phase = False
                 for line in response.iter_lines():
                     if self._stop_event.is_set():
                         log.info("stream_worker: aborted by stop_event after %d chunks", chunk_count)
@@ -273,16 +275,26 @@ class LlamaClient:
                         if usage is not None:
                             wx.CallAfter(on_usage, usage)
 
-                    content = (
-                        chunk.get("choices", [{}])[0]
-                        .get("delta", {})
-                        .get("content", "")
-                    )
+                    delta = chunk.get("choices", [{}])[0].get("delta", {})
+                    content = delta.get("content") or ""
+                    reasoning = delta.get("reasoning_content") or ""
+
+                    if reasoning:
+                        total_reasoning_len += len(reasoning)
+                        if not in_reasoning_phase:
+                            in_reasoning_phase = True
+                            log.info("stream_worker: reasoning phase started")
+                        wx.CallAfter(on_token, reasoning)
+
                     if content:
                         total_content_len += len(content)
                         if not first_token_logged:
-                            log.info("stream_worker: first token received")
+                            if in_reasoning_phase:
+                                log.info("stream_worker: reasoning phase ended, response started")
+                            else:
+                                log.info("stream_worker: first token received")
                             first_token_logged = True
+                            in_reasoning_phase = False
                         wx.CallAfter(on_token, content)
 
                     if finish_reason:
@@ -304,8 +316,8 @@ class LlamaClient:
                         _tc_buffer.clear()
 
             log.info(
-                "stream_worker: done — chunks=%d total_content=%d chars",
-                chunk_count, total_content_len,
+                "stream_worker: done — chunks=%d content=%d chars reasoning=%d chars",
+                chunk_count, total_content_len, total_reasoning_len,
             )
             wx.CallAfter(on_done)
 

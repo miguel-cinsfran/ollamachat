@@ -57,7 +57,7 @@ def test_load_config_ignores_unknown_keys(monkeypatch, tmp_path):
     result = load_config()
     assert result.port == 9090
     assert result.temperature == 0.5
-    assert result.max_tokens == 512
+    assert result.max_tokens == 4096
 
 
 def test_extra_model_folders_default_is_empty_list():
