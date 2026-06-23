@@ -112,6 +112,9 @@ class MainWindow(wx.Frame):
         main_panel = wx.Panel(self)
 
         # ── Model selector ────────────────────────────────────────────
+        # StaticText created BEFORE ComboBox: Windows UIA assigns accName by
+        # z-order (creation order), not sizer order.
+        modelo_label = wx.StaticText(main_panel, label="Modelo:")
         self.model_selector = wx.ComboBox(main_panel, name="Selector de modelo")
         if self._config.last_model:
             self.model_selector.SetValue(self._config.last_model)
@@ -133,6 +136,7 @@ class MainWindow(wx.Frame):
         self.use_model_button.Disable()
 
         # ── Server controls ───────────────────────────────────────────
+        servidor_label = wx.StaticText(main_panel, label="Servidor:")
         self.restart_server_button = wx.Button(
             main_panel, label="Iniciar servidor", name="restart_server_button"
         )
@@ -144,10 +148,7 @@ class MainWindow(wx.Frame):
         # ── Top row: model controls + server controls ─────────────────
         top_row = wx.BoxSizer(wx.HORIZONTAL)
 
-        top_row.Add(
-            wx.StaticText(main_panel, label="Modelo:"),
-            flag=wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, border=4,
-        )
+        top_row.Add(modelo_label, flag=wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, border=4)
         top_row.Add(self.model_selector, proportion=1, flag=wx.EXPAND)
         top_row.Add(self.scan_models_button, flag=wx.LEFT, border=4)
         top_row.Add(self.browse_model_button, flag=wx.LEFT, border=4)
@@ -155,10 +156,7 @@ class MainWindow(wx.Frame):
 
         top_row.AddSpacer(20)
 
-        top_row.Add(
-            wx.StaticText(main_panel, label="Servidor:"),
-            flag=wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, border=4,
-        )
+        top_row.Add(servidor_label, flag=wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, border=4)
         top_row.Add(
             self.restart_server_button, flag=wx.ALIGN_CENTER_VERTICAL
         )

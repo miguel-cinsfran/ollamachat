@@ -2,6 +2,7 @@
 
 import json
 import os
+from pathlib import Path
 
 import pytest
 
@@ -154,7 +155,7 @@ def test_load_missing_file_raises(tmp_path):
     missing = tmp_path / "missing.json"
     with pytest.raises(FileNotFoundError) as exc_info:
         Conversation.load(missing)
-    assert str(missing) in str(exc_info.value)
+    assert Path(exc_info.value.filename) == missing
 
 
 def test_atomic_write_uses_tmp(tmp_path):
