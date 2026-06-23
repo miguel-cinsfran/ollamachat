@@ -256,6 +256,55 @@ def test_basename_to_path_init():
     )
 
 
+# ─── Tools checkbox (v0.4.0) ──────────────────────────────────────────────
+
+
+def test_tools_checkbox_present():
+    """ParamsPanel has a wx.CheckBox with name='tools_checkbox'."""
+    source_path = _get_ui_path("params_panel.py")
+    source = source_path.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    found = False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            func_name = _get_func_name(node)
+            if func_name == "wx.CheckBox":
+                has_name = any(
+                    kw.arg == "name"
+                    and isinstance(kw.value, ast.Constant)
+                    and kw.value.value == "tools_checkbox"
+                    for kw in node.keywords
+                    if kw.arg is not None
+                )
+                if has_name:
+                    found = True
+                    break
+
+    assert found, "No wx.CheckBox with name='tools_checkbox' found in params_panel.py"
+
+
+def test_get_tools_enabled_method_exists():
+    """ParamsPanel has get_tools_enabled() -> bool method."""
+    source_path = _get_ui_path("params_panel.py")
+    source = source_path.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    found = False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "get_tools_enabled":
+            found = True
+            args = [a.arg for a in node.args.args]
+            assert "self" in args, "get_tools_enabled must have self"
+            if node.returns is not None:
+                ret_name = node.returns
+                if isinstance(ret_name, ast.Name):
+                    assert ret_name.id == "bool", "get_tools_enabled must return bool"
+            break
+
+    assert found, "get_tools_enabled method not found in ParamsPanel"
+
+
 def _get_func_name(node: ast.Call) -> str:
     """Extract the full function name from a Call node (e.g. wx.BoxSizer -> wx.BoxSizer)."""
     if isinstance(node.func, ast.Attribute):

@@ -177,6 +177,18 @@ class ParamsPanel(wx.Panel):
             wx.EVT_SLIDER, self._on_slider_change, self.repeat_penalty_slider
         )
 
+        # ── Tools Checkbox ──────────────────────────────────────────────
+        sizer.Add(
+            wx.StaticText(self, label="Herramientas:"),
+            flag=wx.LEFT | wx.TOP, border=8,
+        )
+        self.tools_checkbox = wx.CheckBox(
+            self, label="Permitir herramientas (PowerShell)",
+            name="tools_checkbox",
+        )
+        sizer.Add(self.tools_checkbox,
+                  flag=wx.LEFT | wx.RIGHT | wx.BOTTOM, border=8)
+
         # Add stretch space at the end
         sizer.AddStretchSpacer()
 
@@ -303,6 +315,14 @@ class ParamsPanel(wx.Panel):
             "top_k": self.top_k_spin.GetValue(),
             "repeat_penalty": self.repeat_penalty_slider.GetValue() / 100.0,
         }
+
+    def get_tools_enabled(self) -> bool:
+        """Get whether tools (PowerShell) are enabled for this session.
+
+        Returns:
+            True if the tools checkbox is checked.
+        """
+        return self.tools_checkbox.GetValue()
 
     def _on_slider_change(self, event: wx.CommandEvent) -> None:
         """Handle slider value change.
