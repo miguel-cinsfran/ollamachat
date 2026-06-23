@@ -805,6 +805,130 @@ def test_abort_generation_calls_speech_stop_and_clear_buffer() -> None:
     )
 
 
+def test_dialogs_speak_after_show_modal() -> None:
+    """Three dialog methods speak AFTER ShowModal to avoid double announcement.
+
+    _on_error, _show_about, _show_shortcuts must each have the speak
+    call AFTER ShowModal. _startup_check is exempt (speaks BEFORE).
+    """
+    import re
+    source_path = _get_ui_path("main_window.py")
+    src = source_path.read_text(encoding="utf-8")
+
+    methods = ("_on_error", "_show_about", "_show_shortcuts")
+    for method_name in methods:
+        m = re.search(
+            rf"def {method_name}\(self.*?\) -> None:.*?"
+            r"(?=\n    def |\nclass |\Z)",
+            src, re.DOTALL,
+        )
+        assert m is not None, f"{method_name} not found"
+        body = m.group(0)
+
+        speak_pos = body.find("self._speech.speak(")
+        modal_pos = body.find("ShowModal()")
+
+        assert speak_pos >= 0, (
+            f"{method_name} must contain a self._speech.speak() call"
+        )
+        assert modal_pos >= 0, (
+            f"{method_name} must contain a ShowModal() call"
+        )
+        assert speak_pos > modal_pos, (
+            f"{method_name}: speak() must appear AFTER ShowModal() "
+            f"to avoid double announcement. "
+            f"speak at {speak_pos}, ShowModal at {modal_pos}"
+        )
+
+
+def test_startup_check_speaks_before_modal() -> None:
+    """_startup_check ordering is preserved: speak BEFORE ShowModal.
+
+    This is the intentional exemption for critical startup alerts.
+    """
+    import re
+    source_path = _get_ui_path("main_window.py")
+    src = source_path.read_text(encoding="utf-8")
+    m = re.search(
+        r"def _startup_check\(self\) -> None:.*?"
+        r"(?=\n    def |\nclass |\Z)",
+        src, re.DOTALL,
+    )
+    assert m is not None, "_startup_check not found"
+    body = m.group(0)
+
+    speak_pos = body.find("self._speech.speak(")
+    modal_pos = body.find("ShowModal()")
+
+    assert speak_pos >= 0, (
+        "_startup_check must contain a self._speech.speak() call"
+    )
+    assert modal_pos >= 0, (
+        "_startup_check must contain a ShowModal() call"
+    )
+    assert speak_pos < modal_pos, (
+        "_startup_check: speak() must appear BEFORE ShowModal() "
+        "(intentional pre-alert exemption)"
+    )
+
+
+def test_on_start_server_done_calls_output_on_success() -> None:
+    """_on_start_server_done calls self._speech.output in the success branch.
+
+    The output call must appear only in the `if ok:` branch, after
+    _update_title / _scan_models, guarded by `if loaded:`.
+    """
+    import re
+    source_path = _get_ui_path("main_window.py")
+    src = source_path.read_text(encoding="utf-8")
+    m = re.search(
+        r"def _on_start_server_done\(self, ok: bool, message: str\) -> None:.*?"
+        r"(?=\n    def |\nclass |\Z)",
+        src, re.DOTALL,
+    )
+    assert m is not None, "_on_start_server_done not found"
+    body = m.group(0)
+
+    # Verify the success branch contains _speech.output
+    assert "self._speech.output(" in body, (
+        "_on_start_server_done must call self._speech.output() in the "
+        "success branch so the model name reaches braille displays"
+    )
+
+    # Verify output call is inside the `if ok:` / `if loaded:` block
+    ok_pos = body.find("if ok:")
+    output_pos = body.find("self._speech.output(")
+    assert output_pos > ok_pos, (
+        "self._speech.output() must be inside the `if ok:` branch"
+    )
+
+
+def test_on_usage_does_not_call_output() -> None:
+    """_on_usage must NOT call _speech.output (would spam braille display).
+
+    Only announce_token_chunk is allowed for per-token updates.
+    """
+    import re
+    source_path = _get_ui_path("main_window.py")
+    src = source_path.read_text(encoding="utf-8")
+    m = re.search(
+        r"def _on_usage\(self, usage: dict\) -> None:.*?"
+        r"(?=\n    def |\nclass |\Z)",
+        src, re.DOTALL,
+    )
+    assert m is not None, "_on_usage not found"
+    body = m.group(0)
+
+    assert "self._speech.output(" not in body, (
+        "_on_usage must NOT call self._speech.output() — per-token "
+        "braille output would spam the display"
+    )
+    assert "self._speech.announce_token_chunk" not in body, (
+        "_on_usage does not call announce_token_chunk (that happens "
+        "in _on_token via announcer thread)"
+    )
+
+
 # ─── v0.4.1 stream callback guards (BUG 1 race) ───────────────────────────
 
 

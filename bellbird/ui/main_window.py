@@ -429,6 +429,8 @@ class MainWindow(wx.Frame):
             self._update_title(loaded or None)
             if "corriendo" not in message:
                 self._scan_models()
+            if loaded:
+                self._speech.output(f"Modelo: {Path(loaded).stem}")
         else:
             self.status_bar.SetStatusText("Error al iniciar", 0)
         self._sync_button_state(ok)
@@ -901,13 +903,13 @@ class MainWindow(wx.Frame):
         self.chat_panel.end_generation()
         self._is_generating = False
         self.status_bar.SetStatusText("Error", 2)
-        self._speech.speak(error_text, interrupt=True)
         wx.MessageDialog(
             self,
             message=error_text,
             caption="Error",
             style=wx.OK | wx.ICON_ERROR,
         ).ShowModal()
+        self._speech.speak(error_text, interrupt=True)
 
     # ── Abort ──────────────────────────────────────────────────────────────
 
@@ -1072,13 +1074,13 @@ class MainWindow(wx.Frame):
             "usando llama-server (llama.cpp).\n"
             "Diseñado para usuarios de lectores de pantalla."
         )
-        self._speech.speak(about_msg, interrupt=True)
         wx.MessageDialog(
             self,
             message=about_msg,
             caption="Acerca de Bellbird",
             style=wx.OK | wx.ICON_INFORMATION,
         ).ShowModal()
+        self._speech.speak(about_msg, interrupt=True)
 
     def _show_shortcuts(self) -> None:
         """Show keyboard shortcuts dialog."""
@@ -1100,10 +1102,10 @@ class MainWindow(wx.Frame):
             "Enter: Enviar mensaje\n"
             "Shift+Enter: Nueva línea en el input"
         )
-        self._speech.speak(shortcuts, interrupt=True)
         wx.MessageDialog(
             self,
             message=shortcuts,
             caption="Atajos de teclado",
             style=wx.OK | wx.ICON_INFORMATION,
         ).ShowModal()
+        self._speech.speak(shortcuts, interrupt=True)
