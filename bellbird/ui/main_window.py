@@ -1057,7 +1057,7 @@ class MainWindow(wx.Frame):
     def _show_about(self) -> None:
         """Show About dialog."""
         about_msg = (
-            "Bellbird v0.3.0\n\n"
+            "Bellbird v0.4.0\n\n"
             "Cliente accesible de chat para modelos locales .gguf\n"
             "usando llama-server (llama.cpp).\n"
             "Diseñado para usuarios de lectores de pantalla."
