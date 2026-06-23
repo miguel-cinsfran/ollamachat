@@ -107,30 +107,34 @@ class MainWindow(wx.Frame):
 
     def _build_ui(self) -> None:
         """Build the vertical BoxSizer layout: top row + ChatPanel."""
-        # ── Model selector (Frame child) ──────────────────────────────
-        self.model_selector = wx.ComboBox(self, name="model_selector")
+        # wx.Frame does not propagate Tab key to child controls on Windows.
+        # All interactive controls must be children of this Panel, not the Frame.
+        main_panel = wx.Panel(self)
+
+        # ── Model selector ────────────────────────────────────────────
+        self.model_selector = wx.ComboBox(main_panel, name="model_selector")
         if self._config.last_model:
             self.model_selector.SetValue(self._config.last_model)
         self.model_selector.Bind(wx.EVT_COMBOBOX, self._on_model_select)
         self.model_selector.Bind(wx.EVT_TEXT, self._on_model_text_change)
 
         self.scan_models_button = wx.Button(
-            self, label="Buscar modelos", name="scan_models_button"
+            main_panel, label="Buscar modelos", name="scan_models_button"
         )
         self.browse_model_button = wx.Button(
-            self, label="Explorar...", name="browse_model_button"
+            main_panel, label="Explorar...", name="browse_model_button"
         )
         self.use_model_button = wx.Button(
-            self, label="Usar modelo", name="use_model_button"
+            main_panel, label="Usar modelo", name="use_model_button"
         )
         self.use_model_button.Disable()
 
-        # ── Server controls (Frame children) ──────────────────────────
+        # ── Server controls ───────────────────────────────────────────
         self.restart_server_button = wx.Button(
-            self, label="Iniciar servidor", name="restart_server_button"
+            main_panel, label="Iniciar servidor", name="restart_server_button"
         )
         self.stop_server_button = wx.Button(
-            self, label="Detener servidor", name="stop_server_button"
+            main_panel, label="Detener servidor", name="stop_server_button"
         )
         self.stop_server_button.Disable()
 
@@ -138,7 +142,7 @@ class MainWindow(wx.Frame):
         top_row = wx.BoxSizer(wx.HORIZONTAL)
 
         top_row.Add(
-            wx.StaticText(self, label="Modelo:"),
+            wx.StaticText(main_panel, label="Modelo:"),
             flag=wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, border=4,
         )
         top_row.Add(self.model_selector, proportion=1, flag=wx.EXPAND)
@@ -149,7 +153,7 @@ class MainWindow(wx.Frame):
         top_row.AddSpacer(20)
 
         top_row.Add(
-            wx.StaticText(self, label="Servidor:"),
+            wx.StaticText(main_panel, label="Servidor:"),
             flag=wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, border=4,
         )
         top_row.Add(
@@ -160,9 +164,9 @@ class MainWindow(wx.Frame):
             flag=wx.ALIGN_CENTER_VERTICAL | wx.LEFT, border=4,
         )
 
-        # ── Chat panel (Frame child, full width) ──────────────────────
+        # ── Chat panel ────────────────────────────────────────────────
         self.chat_panel = ChatPanel(
-            self, self._speech,
+            main_panel, self._speech,
             on_send=self.send_message,
             on_delete_message=self._on_history_delete,
         )
@@ -171,7 +175,7 @@ class MainWindow(wx.Frame):
         root_sizer = wx.BoxSizer(wx.VERTICAL)
         root_sizer.Add(top_row, flag=wx.EXPAND | wx.ALL, border=8)
         root_sizer.Add(self.chat_panel, proportion=1, flag=wx.EXPAND)
-        self.SetSizer(root_sizer)
+        main_panel.SetSizer(root_sizer)
 
         # ── Wire buttons ──────────────────────────────────────────────
         self.scan_models_button.Bind(
