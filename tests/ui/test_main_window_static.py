@@ -578,6 +578,44 @@ def test_shell_tool_definition_at_module_level():
                     )
 
 
+# ─── v0.4.0-ui verify v1 CRITICAL-1 regression ────────────────────────────────
+
+
+def test_on_tool_result_passes_tool_call_id_to_add_message() -> None:
+    """Regression: _on_tool_result must persist tool_call_id on the tool message.
+
+    Without this, the second turn of a tool-calling cycle breaks because
+    llama-server (OpenAI-compatible) requires tool_call_id on tool
+    messages to match the assistant's tool_calls[].id. v0.4.0-ui verify v1
+    found this as CRITICAL-1.
+    """
+    import re
+    from pathlib import Path
+    src = Path("ollamachat/ui/main_window.py").read_text(encoding="utf-8")
+    m = re.search(
+        r"def _on_tool_result\(self, result, tool_call_id: str\) -> None:.*?"
+        r"(?=\n    def |\nclass |\Z)",
+        src, re.DOTALL,
+    )
+    assert m is not None, "_on_tool_result not found in main_window.py"
+    body = m.group(0)
+    # Find the FULL add_message call (may span multiple lines)
+    add_msg_full = re.search(
+        r"self\._conversation\.add_message\([^)]*\)",
+        body,
+        re.DOTALL,
+    )
+    assert add_msg_full is not None, (
+        "_on_tool_result must call self._conversation.add_message"
+    )
+    call = add_msg_full.group(0)
+    assert "tool_call_id" in call and "tool_call_id=" in call, (
+        "_on_tool_result's add_message call MUST pass tool_call_id=tool_call_id "
+        "to persist the ID for the next API call. Otherwise the tool-calling "
+        "cycle breaks at the second turn. See verify-report v1 CRITICAL-1."
+    )
+
+
 def _get_attr_name(node: ast.AST) -> str:
     """Extract the dotted name from a nested attribute node."""
     if isinstance(node, ast.Attribute):

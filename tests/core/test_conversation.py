@@ -272,3 +272,74 @@ def test_load_missing_system_prompt_returns_empty_string(tmp_path):
     conv, sp = Conversation.load(filepath)
     assert sp == ""
     assert len(conv.messages) == 1
+
+
+# ─── tool_call_id (v0.4.0, for tool-calling second-turn round-trip) ──────────
+
+
+def test_add_tool_message_with_tool_call_id():
+    """Given a tool message with tool_call_id, the field is persisted."""
+    from ollamachat.core.conversation import Conversation
+
+    conv = Conversation()
+    conv.add_message("tool", "ls output", tool_call_id="call_abc123")
+    assert conv.messages[0]["tool_call_id"] == "call_abc123"
+
+
+def test_add_non_tool_message_omits_tool_call_id():
+    """Given a user/assistant message with tool_call_id arg, the field is NOT added.
+
+    tool_call_id is meaningful only for role="tool". For other roles, the
+    parameter is silently ignored to avoid pollution.
+    """
+    from ollamachat.core.conversation import Conversation
+
+    conv = Conversation()
+    conv.add_message("user", "hola", tool_call_id="ignored")
+    assert "tool_call_id" not in conv.messages[0]
+
+    conv.add_message("assistant", "respuesta", tool_call_id="also_ignored")
+    assert "tool_call_id" not in conv.messages[1]
+
+
+def test_get_messages_includes_tool_call_id():
+    """Given a tool message, get_messages_for_api includes tool_call_id.
+
+    This is the critical contract for the tool-calling second turn:
+    llama-server requires the tool message to carry the same
+    tool_call_id as the assistant's tool_calls[].id.
+    """
+    from ollamachat.core.conversation import Conversation
+
+    conv = Conversation()
+    conv.add_message("tool", "ls output", tool_call_id="call_abc123")
+    api_msgs = conv.get_messages_for_api()
+    assert api_msgs[0]["tool_call_id"] == "call_abc123"
+    assert "timestamp" not in api_msgs[0]
+
+
+def test_get_messages_omits_tool_call_id_when_not_set():
+    """Given a tool message without tool_call_id, get_messages_for_api omits the key."""
+    from ollamachat.core.conversation import Conversation
+
+    conv = Conversation()
+    conv.add_message("tool", "ls output")
+    api_msgs = conv.get_messages_for_api()
+    assert "tool_call_id" not in api_msgs[0]
+
+
+def test_tool_call_id_round_trip_through_save_load(tmp_path):
+    """Given a tool message with tool_call_id, save+load preserves the field."""
+    from ollamachat.core.conversation import Conversation
+
+    conv = Conversation()
+    conv.add_message("user", "ls please")
+    conv.add_message(
+        "tool", "file1\nfile2", tool_call_id="call_xyz789"
+    )
+
+    filepath = tmp_path / "chat.json"
+    Conversation.save(conv, filepath)
+
+    loaded, _ = Conversation.load(filepath)
+    assert loaded.messages[1]["tool_call_id"] == "call_xyz789"

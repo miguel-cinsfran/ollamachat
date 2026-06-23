@@ -826,7 +826,13 @@ class MainWindow(wx.Frame):
         )
         tool_msg = result.to_tool_message()
         tool_msg["tool_call_id"] = tool_call_id
-        self._conversation.add_message("tool", tool_msg["content"])
+        # Persist tool_call_id on the message so the next API call carries
+        # the matching ID (required by the OpenAI-compatible API for the
+        # tool-calling second turn). Without this, llama-server rejects
+        # the request. v0.4.0-ui verify v1 CRITICAL-1.
+        self._conversation.add_message(
+            "tool", tool_msg["content"], tool_call_id=tool_call_id
+        )
         self._continue_after_tool(tool_msg)
 
     def _continue_after_tool(self, tool_msg: dict) -> None:

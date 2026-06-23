@@ -34,13 +34,19 @@ class Conversation:
         role: str,
         content: str,
         images: list[str] | None = None,
+        tool_call_id: str | None = None,
     ) -> None:
         """Append a message to the conversation.
 
         Args:
-            role: Message role ("user", "assistant", "system").
+            role: Message role ("user", "assistant", "system", "tool").
             content: Message text content.
-            images: Optional list of base64-encoded image strings.
+            images: Optional list of base64-encoded image strings (user role only).
+            tool_call_id: Required for role="tool" — the ID returned by the
+                model in its assistant tool_calls[].id field. The OpenAI-
+                compatible API requires tool messages to carry the matching
+                tool_call_id so the model can correlate the result with the
+                call. Ignored for non-tool roles.
         """
         msg: dict[str, Any] = {
             "role": role,
@@ -49,15 +55,21 @@ class Conversation:
         }
         if images:
             msg["images"] = images
+        if tool_call_id is not None and role == "tool":
+            msg["tool_call_id"] = tool_call_id
         self.messages.append(msg)
 
     def get_messages_for_api(self) -> list[dict[str, Any]]:
         """Return messages in the format required by the Ollama API.
 
-        Strips the timestamp key and preserves images if present.
+        Strips the timestamp key and preserves images and tool_call_id
+        if present. For role="tool" messages, the tool_call_id MUST be
+        present so the model can correlate the result with the
+        assistant's tool_calls[].id (OpenAI-compatible API requirement).
 
         Returns:
-            List of message dicts with role, content, and optional images.
+            List of message dicts with role, content, and optional
+            images and tool_call_id.
         """
         result: list[dict[str, Any]] = []
         for msg in self.messages:
@@ -67,6 +79,8 @@ class Conversation:
             }
             if "images" in msg:
                 api_msg["images"] = msg["images"]
+            if "tool_call_id" in msg:
+                api_msg["tool_call_id"] = msg["tool_call_id"]
             result.append(api_msg)
         return result
 
