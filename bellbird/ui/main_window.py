@@ -714,8 +714,8 @@ class MainWindow(wx.Frame):
             total = self._last_usage.get("total_tokens", 0)
             tokens_str = f"{total} tokens"
 
-        temp = self.params_panel.temperature_slider.GetValue() / 100.0
-        topp = self.params_panel.top_p_slider.GetValue() / 100.0
+        temp = self._config.temperature
+        topp = self._config.top_p
         temp_str = f"{temp:.2f}".replace(".", ",")
         topp_str = f"{topp:.2f}".replace(".", ",")
 
@@ -798,7 +798,7 @@ class MainWindow(wx.Frame):
         api_messages = []
 
         # System prompt (if non-empty)
-        system_prompt = self.params_panel.get_system_prompt()
+        system_prompt = self._config.system_prompt
         if system_prompt.strip():
             api_messages.append({"role": "system", "content": system_prompt})
 
@@ -860,7 +860,13 @@ class MainWindow(wx.Frame):
             self.chat_panel.append_user_message("[imagen enviada]")
 
         # Start generation
-        options = self.params_panel.get_params()
+        options = {
+            "temperature": self._config.temperature,
+            "max_tokens": self._config.max_tokens,
+            "top_p": self._config.top_p,
+            "top_k": self._config.top_k,
+            "repeat_penalty": self._config.repeat_penalty,
+        }
         self._current_response = ""
 
         self.chat_panel.start_generation()
@@ -870,7 +876,7 @@ class MainWindow(wx.Frame):
         self.status_bar.SetStatusText("Generando respuesta...", 2)
         self._speech.speak("Generando respuesta...", interrupt=True)
 
-        tools = [SHELL_TOOL_DEFINITION] if self.params_panel.get_tools_enabled() else None
+        tools = [SHELL_TOOL_DEFINITION] if self._config.tools_enabled else None
 
         self._client.chat_stream(
             messages=api_messages,
@@ -1004,14 +1010,14 @@ class MainWindow(wx.Frame):
     def _continue_after_tool(self) -> None:
         """Reenvía la conversación al modelo con el resultado de la tool."""
         api_messages = []
-        system_prompt = self.params_panel.get_system_prompt()
+        system_prompt = self._config.system_prompt
         if system_prompt.strip():
             api_messages.append({"role": "system", "content": system_prompt})
         api_messages.extend(self._conversation.get_messages_for_api())
 
         tools = (
             [SHELL_TOOL_DEFINITION]
-            if self.params_panel.get_tools_enabled()
+            if self._config.tools_enabled
             else None
         )
 
@@ -1023,7 +1029,13 @@ class MainWindow(wx.Frame):
 
         self._client.chat_stream(
             messages=api_messages,
-            options=self.params_panel.get_params(),
+            options={
+                "temperature": self._config.temperature,
+                "max_tokens": self._config.max_tokens,
+                "top_p": self._config.top_p,
+                "top_k": self._config.top_k,
+                "repeat_penalty": self._config.repeat_penalty,
+            },
             on_token=self._on_token,
             on_done=self._on_done,
             on_error=self._on_error,
@@ -1115,7 +1127,7 @@ class MainWindow(wx.Frame):
             filepath = dialog.GetPath()
             Conversation.save(
                 self._conversation, filepath,
-                system_prompt=self.params_panel.get_system_prompt(),
+                system_prompt=self._config.system_prompt,
             )
             self._speech.speak("Conversación guardada", interrupt=True)
         dialog.Destroy()
@@ -1134,7 +1146,8 @@ class MainWindow(wx.Frame):
             filepath = dialog.GetPath()
             try:
                 self._conversation, system_prompt = Conversation.load(filepath)
-                self.params_panel.set_system_prompt(system_prompt)
+                self._config.system_prompt = system_prompt
+                save_config(self._config)
                 self.chat_panel.set_history(
                     [(m["role"], m["content"]) for m in self._conversation.messages]
                 )
