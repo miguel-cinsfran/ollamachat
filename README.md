@@ -34,11 +34,19 @@ de pantalla como NVDA y JAWS.
 
 ## Atajos de teclado
 
+- Alt+1: foco en campo de mensaje
+- Alt+2: foco en historial
+- Alt+3: foco en selector de modelo
+- Alt+4: foco en temperatura
+- Alt+5: foco en prompt de sistema
+- Alt+6: foco en usar modelo
 - Ctrl+N: nueva conversación
 - Ctrl+O: abrir conversación guardada
 - Ctrl+S: guardar conversación actual
-- Escape: detener generación de respuesta
+- F2: anunciar estado de sesión
 - F5: actualizar lista de modelos
+- F6: ciclar paneles
+- Escape: detener generación de respuesta
 - Enter: enviar mensaje
 - Shift+Enter: nueva línea en el campo de entrada
 

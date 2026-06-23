@@ -2,6 +2,39 @@
 
 Todas las versiones notables del proyecto OllamaChat.
 
+## [0.3.0] - 2026-06-23
+
+### Agregado
+- Vista dual: `wx.ListBox` para historial navegable + `wx.TextCtrl` para streaming en vivo
+- `ollamachat/core/text_utils.py`: `strip_markdown()` para convertir markdown a texto plano
+- `ollamachat/ui/message_detail_dialog.py`: diálogo modal con contenido completo, abrir en navegador, copiar al portapapeles
+- Botón "Usar modelo" en `ParamsPanel` con carga en hilo de fondo y timer de anuncio
+- `MessageDetailDialog`: popup con texto completo, botones de navegador, copia y cierre
+- Atajos Alt+1..6 para foco directo a controles principales
+- F2: anuncio de estado de sesión con parámetros actuales y decimales en formato español
+- F6: ciclo de foco entre paneles (modelo, historial, input)
+- Confirmación al cerrar con mensajes sin guardar
+- Beep de Windows (520 Hz, 50 ms) durante generación, limitado a 1/s
+- Captura de uso de tokens (`on_usage`) mostrado en barra de estado
+- Renderizado HTML en navegador via `markdown` + `webbrowser`
+- Foco inicial inteligente según estado del servidor
+- `system_prompt` persistido en archivos JSON de conversación (v0.3.0)
+- 34 tests nuevos (8 text_utils + 3 conversation + 2 llama_client + 7 dialog + 3 params + 4 chat_panel + 5 main_window + 2 stream display)
+
+### Cambiado
+- `ChatPanel`: refactor completo — `conversation_display` reemplazado por `message_list` (ListBox) + `stream_display` (TextCtrl)
+- `Conversation.save()` ahora acepta `system_prompt` opcional
+- `Conversation.load()` ahora retorna `tuple[Conversation, str]` en vez de `Conversation`
+- `LlamaClient.chat_stream()` ahora acepta `on_usage` opcional
+- Botón `start_server_button` renombrado a `restart_server_button` con etiqueta "Reiniciar servidor"
+- `load_conversation` usa `set_history()` en vez de bucle manual de re-construcción
+- `save_conversation` persiste el system prompt actual
+
+### Conocido
+- Verificación manual con NVDA en Windows 11 pendiente para foco, F2, Alt+N, y beep
+- `_on_close` bloquea hasta 5s en `stop_server` (aceptado; mejora futura en v0.4.0)
+- No hay tool calling (v0.4.0)
+
 ## [0.2.0] - 2026-06-22
 
 ### Cambiado

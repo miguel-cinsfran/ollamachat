@@ -36,6 +36,9 @@ Tests: pytest (102/102 pasan en el ultimo verify).
   Nunca bloquear el hilo principal en silencio.
 - **`wx.ListBox`** es el control mas accesible para listas navegables con NVDA.
   Preferir sobre `wx.Choice`, `wx.ListCtrl` o `wx.CheckListBox`.
+- **Vista dual**: el historial en `wx.ListBox` con previews de 80 caracteres y el streaming
+  en `wx.TextCtrl` son dos controles separados. NVDA navega cada uno correctamente. No
+  combinar en un solo control.
 - **Cuando el foco entra a un dialogo**, llamar `SetFocus()` en el primer control relevante
   (normalmente el TextCtrl con el contenido) para que NVDA lo anuncie inmediatamente.
 - **`winsound` y otros modulos Windows-only** requieren guard: `if sys.platform == 'win32'`.
