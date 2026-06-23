@@ -65,6 +65,7 @@ class MainWindow(wx.Frame):
         self._create_status_bar()
         self.Bind(wx.EVT_CLOSE, self._on_close)
         self._startup_check()
+        wx.CallAfter(self._set_initial_focus)
 
     # ── UI Construction ───────────────────────────────────────────────────
 
@@ -420,6 +421,64 @@ class MainWindow(wx.Frame):
         self.status_bar.SetStatusText("Servidor detenido", 0)
         self._speech.speak("Servidor detenido", interrupt=True)
         self._sync_button_state(False)
+        self._update_title(None)
+
+    # ── Session Status (F2) ──────────────────────────────────────────────────
+
+    def _announce_session_status(self) -> None:
+        """Announce the current session status via speech (F2)."""
+        model_str = "sin modelo cargado"
+        loaded = self._client.get_loaded_model()
+        if loaded:
+            model_str = Path(loaded).stem
+
+        server_str = (
+            "en ejecución" if self._client.check_running() else "detenido"
+        )
+
+        msg_count = len(self._conversation.messages) // 2
+        msg_str = f"{msg_count} mensajes" if msg_count > 0 else "sin mensajes"
+
+        tokens_str = "Tokens: sin información"
+        if self._last_usage:
+            total = self._last_usage.get("total_tokens", 0)
+            tokens_str = f"{total} tokens"
+
+        temp = self.params_panel.temperature_slider.GetValue() / 100.0
+        topp = self.params_panel.top_p_slider.GetValue() / 100.0
+        temp_str = f"{temp:.2f}".replace(".", ",")
+        topp_str = f"{topp:.2f}".replace(".", ",")
+
+        gen_str = "Generando: Sí" if self._is_generating else "Generando: No"
+
+        text = (
+            f"Modelo {model_str}. {server_str}. {msg_str}. {tokens_str}. "
+            f"Temperatura {temp_str}. Top-p {topp_str}. {gen_str}."
+        )
+        self._speech.speak(text, interrupt=True)
+
+    def _set_initial_focus(self) -> None:
+        """Set initial focus based on server state."""
+        if self._client.check_running():
+            self.chat_panel.message_input.SetFocus()
+        elif self.params_panel.model_selector.GetCount() > 0:
+            self.params_panel.use_model_button.SetFocus()
+        else:
+            self.params_panel.scan_models_button.SetFocus()
+
+    def _maybe_beep(self) -> None:
+        """Emit a Windows beep during token generation (throttled to 1/s)."""
+        if sys.platform != "win32":
+            return
+        now = time.monotonic()
+        if now - self._last_beep_time < 1.0:
+            return
+        self._last_beep_time = now
+        try:
+            import winsound  # Windows-only; guarded by platform check above
+            winsound.Beep(520, 50)
+        except Exception:
+            pass
 
     def _on_browse_model(self) -> None:
         """Open file dialog to pick a .gguf file and set it as the model."""
@@ -533,6 +592,7 @@ class MainWindow(wx.Frame):
         self._current_response = ""
 
         self.chat_panel.start_generation()
+        self._is_generating = True
         self.chat_panel.append_assistant_prefix()
 
         self.status_bar.SetStatusText("Generando respuesta...", 2)
@@ -554,6 +614,7 @@ class MainWindow(wx.Frame):
         """
         self._current_response += token
         self.chat_panel.append_assistant_chunk(token)
+        self._maybe_beep()
         self._speech.announce_token_chunk(token)
 
     def _on_done(self) -> None:
@@ -570,6 +631,7 @@ class MainWindow(wx.Frame):
         # Separate assistant response from the next user message visually.
         self.chat_panel.append_assistant_chunk("\n")
         self.chat_panel.end_generation()
+        self._is_generating = False
         self.status_bar.SetStatusText("", 2)
         self._current_response = ""
 
@@ -582,6 +644,7 @@ class MainWindow(wx.Frame):
         self._current_response = ""
         self.chat_panel.append_assistant_chunk(f"\n[Error: {error_text}]")
         self.chat_panel.end_generation()
+        self._is_generating = False
         self.status_bar.SetStatusText("Error", 2)
         self._speech.speak(error_text, interrupt=True)
         wx.MessageDialog(
@@ -662,15 +725,42 @@ class MainWindow(wx.Frame):
     # ── Window Close ──────────────────────────────────────────────────────────
 
     def _on_close(self, event: wx.CloseEvent) -> None:
-        """Handle window close: abort any active stream, then stop llama-server.
+        """Handle window close with confirmation, cleanup, and abort.
 
-        Aborting first prevents wx.CallAfter callbacks from firing into
-        destroyed controls after Destroy() runs.
+        Sets _is_closing first to gate background threads, shows confirm
+        dialog if there are unsaved messages, aborts streaming, stops
+        the server, and cleans up temp HTML files.
         """
+        self._is_closing = True
         log = get_logger()
-        log.info("Window closing, aborting stream and stopping llama-server")
+        log.info("Window closing")
+
+        # Confirm if there are unsaved messages
+        if len(self._conversation.messages) > 0:
+            dlg = wx.MessageDialog(
+                self,
+                message="¿Salir sin guardar la conversación actual?",
+                caption="Confirmar salida",
+                style=wx.YES_NO | wx.NO_DEFAULT | wx.ICON_QUESTION,
+            )
+            result = dlg.ShowModal()
+            dlg.Destroy()
+            if result != wx.ID_YES:
+                event.Veto()
+                return
+
+        log.info("Aborting stream and stopping llama-server")
         self._client.abort()
         stop_server()
+
+        # Clean up temporary HTML files
+        for p in self._temp_html_files:
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+        self._temp_html_files.clear()
+
         event.Skip()
 
     # ── Help Dialogs ────────────────────────────────────────────────────────
