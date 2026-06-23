@@ -1,9 +1,8 @@
 """MainWindow — top-level application shell for Bellbird.
 
-Integrates ParamsPanel (left) and ChatPanel (right) in a SplitterWindow,
-manages menu bar, accelerator table, status bar, and coordinates the
-full send/receive flow between LlamaClient, LlamaRunner, Conversation,
-and Speech.
+Vertical BoxSizer layout: top row (model selector + server controls),
+ChatPanel (full width). Coordinates the send/receive flow between
+LlamaClient, LlamaRunner, Conversation, and Speech.
 """
 
 import os
@@ -31,7 +30,6 @@ from bellbird.core.llama_runner import (
 from bellbird.core.logger import get_logger
 from bellbird.core.speech import Speech
 from bellbird.ui.chat_panel import ChatPanel
-from bellbird.ui.params_panel import ParamsPanel
 from bellbird.core.config import load_config
 from bellbird.core.permission_manager import PermissionManager
 from bellbird.core.tool_executor import ToolExecutor, ToolResult
@@ -73,7 +71,7 @@ class MainWindow(wx.Frame):
     def __init__(
         self, parent: wx.Window | None = None, title: str = "Bellbird"
     ) -> None:
-        super().__init__(parent, title=title, size=(1100, 700))
+        super().__init__(parent, title=title, size=(900, 650))
         self._config = load_config()
         self._client = LlamaClient(
             base_url=f"http://localhost:{self._config.port}"
@@ -91,6 +89,7 @@ class MainWindow(wx.Frame):
         self._last_beep_time = 0.0
         self._loading_timer: threading.Timer | None = None
         self._model_load_thread: threading.Thread | None = None
+        self._basename_to_path: dict[str, str] = {}
 
         self._build_ui()
         self._build_menu()
@@ -103,52 +102,92 @@ class MainWindow(wx.Frame):
     # ── UI Construction ───────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
-        """Build the splitter layout with ParamsPanel and ChatPanel."""
-        self.splitter = wx.SplitterWindow(self, name="main_splitter")
-        self.splitter.SetMinimumPaneSize(280)
+        """Build the vertical BoxSizer layout: top row + ChatPanel."""
+        # ── Model selector (Frame child) ──────────────────────────────
+        self.model_selector = wx.ComboBox(self, name="model_selector")
+        if self._config.last_model:
+            self.model_selector.SetValue(self._config.last_model)
+        self.model_selector.Bind(wx.EVT_COMBOBOX, self._on_model_select)
+        self.model_selector.Bind(wx.EVT_TEXT, self._on_model_text_change)
 
-        self.params_panel = ParamsPanel(self.splitter, self._speech)
-        self.chat_panel = ChatPanel(
-            self.splitter, self._speech,
-            on_send=self.send_message,
-            on_delete_message=self._on_history_delete,
+        self.scan_models_button = wx.Button(
+            self, label="Buscar modelos", name="scan_models_button"
         )
-
-        self.splitter.SplitVertically(
-            self.params_panel, self.chat_panel, sashPosition=280
+        self.browse_model_button = wx.Button(
+            self, label="Explorar...", name="browse_model_button"
         )
+        self.use_model_button = wx.Button(
+            self, label="Usar modelo", name="use_model_button"
+        )
+        self.use_model_button.Disable()
 
-        # ── Top toolbar: server controls ──────────────────────────────
+        # ── Server controls (Frame children) ──────────────────────────
         self.restart_server_button = wx.Button(
             self, label="Iniciar servidor", name="restart_server_button"
         )
-        self.restart_server_button.Bind(
-            wx.EVT_BUTTON, lambda evt: self._on_start_server()
-        )
-
         self.stop_server_button = wx.Button(
             self, label="Detener servidor", name="stop_server_button"
         )
         self.stop_server_button.Disable()
-        self.stop_server_button.Bind(
-            wx.EVT_BUTTON, lambda evt: self._on_stop_server()
-        )
 
-        toolbar_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        toolbar_sizer.Add(
+        # ── Top row: model controls + server controls ─────────────────
+        top_row = wx.BoxSizer(wx.HORIZONTAL)
+
+        top_row.Add(
+            wx.StaticText(self, label="Modelo:"),
+            flag=wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, border=4,
+        )
+        top_row.Add(self.model_selector, proportion=1, flag=wx.EXPAND)
+        top_row.Add(self.scan_models_button, flag=wx.LEFT, border=4)
+        top_row.Add(self.browse_model_button, flag=wx.LEFT, border=4)
+        top_row.Add(self.use_model_button, flag=wx.LEFT, border=4)
+
+        top_row.AddSpacer(20)
+
+        top_row.Add(
             wx.StaticText(self, label="Servidor:"),
             flag=wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, border=4,
         )
-        toolbar_sizer.Add(
+        top_row.Add(
             self.restart_server_button, flag=wx.ALIGN_CENTER_VERTICAL
         )
-        toolbar_sizer.Add(
-            self.stop_server_button, flag=wx.ALIGN_CENTER_VERTICAL | wx.LEFT,
-            border=4,
+        top_row.Add(
+            self.stop_server_button,
+            flag=wx.ALIGN_CENTER_VERTICAL | wx.LEFT, border=4,
         )
 
-        # Wire up chat panel actions to MainWindow handlers
-        self.chat_panel.send_button.Bind(wx.EVT_BUTTON, lambda evt: self.send_message())
+        # ── Chat panel (Frame child, full width) ──────────────────────
+        self.chat_panel = ChatPanel(
+            self, self._speech,
+            on_send=self.send_message,
+            on_delete_message=self._on_history_delete,
+        )
+
+        # ── Root vertical sizer ───────────────────────────────────────
+        root_sizer = wx.BoxSizer(wx.VERTICAL)
+        root_sizer.Add(top_row, flag=wx.EXPAND | wx.ALL, border=8)
+        root_sizer.Add(self.chat_panel, proportion=1, flag=wx.EXPAND)
+        self.SetSizer(root_sizer)
+
+        # ── Wire buttons ──────────────────────────────────────────────
+        self.scan_models_button.Bind(
+            wx.EVT_BUTTON, lambda evt: self._scan_models()
+        )
+        self.browse_model_button.Bind(
+            wx.EVT_BUTTON, lambda evt: self._on_browse_model()
+        )
+        self.use_model_button.Bind(
+            wx.EVT_BUTTON, lambda evt: self._on_use_model()
+        )
+        self.restart_server_button.Bind(
+            wx.EVT_BUTTON, lambda evt: self._on_start_server()
+        )
+        self.stop_server_button.Bind(
+            wx.EVT_BUTTON, lambda evt: self._on_stop_server()
+        )
+        self.chat_panel.send_button.Bind(
+            wx.EVT_BUTTON, lambda evt: self.send_message()
+        )
         self.chat_panel.stop_button.Bind(
             wx.EVT_BUTTON, lambda evt: self.abort_generation()
         )
@@ -156,21 +195,105 @@ class MainWindow(wx.Frame):
             wx.EVT_BUTTON, lambda evt: self.new_conversation()
         )
 
-        # Wire up params_panel buttons
-        self.params_panel.scan_models_button.Bind(
-            wx.EVT_BUTTON, lambda evt: self._scan_models()
-        )
-        self.params_panel.browse_model_button.Bind(
-            wx.EVT_BUTTON, lambda evt: self._on_browse_model()
-        )
-        self.params_panel.use_model_button.Bind(
-            wx.EVT_BUTTON, lambda evt: self._on_use_model()
-        )
+    # ── Model control helpers (inlined from params_panel.py) ────────────
 
-        sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(toolbar_sizer, flag=wx.ALL, border=8)
-        sizer.Add(self.splitter, proportion=1, flag=wx.EXPAND)
-        self.SetSizer(sizer)
+    def set_models(self, paths: list[str]) -> None:
+        """Populate the model selector with .gguf file basenames.
+
+        Replaces the entire selection. Used by the "Buscar modelos" scan.
+
+        Args:
+            paths: List of absolute paths to .gguf files.
+        """
+        self.model_selector.Clear()
+        self._basename_to_path.clear()
+        for path_str in paths:
+            path = Path(path_str)
+            self._basename_to_path[path.name] = str(path)
+            self.model_selector.Append(path.name)
+        if paths:
+            self.model_selector.SetSelection(0)
+            self.use_model_button.Enable()
+        else:
+            self.use_model_button.Disable()
+
+    def add_model(self, path_str: str) -> bool:
+        """Add a single .gguf file to the selector without clearing.
+
+        If a model with the same basename is already in the selector,
+        the selection moves to it instead of duplicating.
+
+        Args:
+            path_str: Absolute path to a .gguf file.
+
+        Returns:
+            True if the model was added or already present. False if
+            the path is not a .gguf file or does not exist.
+        """
+        path = Path(path_str)
+        if path.suffix.lower() != ".gguf":
+            return False
+        if not path.is_file():
+            return False
+
+        basename = path.name
+        if basename in self._basename_to_path:
+            index = self.model_selector.FindString(basename)
+            if index != wx.NOT_FOUND:
+                self.model_selector.SetSelection(index)
+            return True
+        self._basename_to_path[basename] = str(path)
+        self.model_selector.Append(basename)
+        self.model_selector.SetSelection(self.model_selector.GetCount() - 1)
+        self.use_model_button.Enable()
+        return True
+
+    def get_model(self) -> str:
+        """Get the full absolute path of the selected model.
+
+        Resolution order:
+        1. If the ComboBox value matches a key in _basename_to_path,
+           return the mapped absolute path.
+        2. If the value looks like a path (contains /, \\, or :) and
+           the file exists on disk, return it verbatim.
+        3. Otherwise return ''.
+
+        Returns:
+            Absolute path string, or '' if no valid model selected.
+        """
+        value = self.model_selector.GetValue()
+        if not value:
+            return ""
+
+        # Rule 1: basename lookup
+        if value in self._basename_to_path:
+            return self._basename_to_path[value]
+
+        # Rule 2: typed path
+        if any(c in value for c in ("\\", "/", ":")):
+            p = Path(value)
+            if p.is_file():
+                return str(p.resolve())
+
+        # Rule 3: not found
+        return ""
+
+    def _on_model_select(self, event: wx.CommandEvent) -> None:
+        """Handle model selector selection change."""
+        if self.model_selector.GetCount() > 0:
+            self.use_model_button.Enable()
+        else:
+            self.use_model_button.Disable()
+
+    def _on_model_text_change(self, event: wx.CommandEvent) -> None:
+        """Enable use_model_button when the combo box has any non-empty text."""
+        value = self.model_selector.GetValue().strip()
+        if value:
+            self.use_model_button.Enable()
+        else:
+            self.use_model_button.Disable()
+
+    # ── Menu Bar ─────────────────────────────────────────────────────────
 
     def _build_menu(self) -> None:
         """Build the menu bar with Archivo and Ayuda menus."""
