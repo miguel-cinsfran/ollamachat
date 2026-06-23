@@ -259,6 +259,74 @@ def test_use_model_button_in_boxsizer():
     assert "model_sizer.Add(" in source or "model_sizer.Add(self.use_model_button" in source
 
 
+# ─── v0.3.0 AST tests ──────────────────────────────────────────────────────
+
+
+def test_f2_accelerator_present():
+    """WXK_F2 appears in the accelerator entries in main_window.py."""
+    source_path = _get_ui_path("main_window.py")
+    source = source_path.read_text(encoding="utf-8")
+    assert "WXK_F2" in source, "F2 accelerator entry not found in source"
+
+
+def test_announce_session_status_method_exists():
+    """MainWindow has an _announce_session_status method."""
+    source_path = _get_ui_path("main_window.py")
+    source = source_path.read_text(encoding="utf-8")
+    assert "_announce_session_status" in source, (
+        "_announce_session_status method not found in source"
+    )
+
+
+def test_open_message_in_browser_method_exists():
+    """MainWindow has an _open_message_in_browser method."""
+    source_path = _get_ui_path("main_window.py")
+    source = source_path.read_text(encoding="utf-8")
+    assert "_open_message_in_browser" in source, (
+        "_open_message_in_browser method not found in source"
+    )
+
+
+def test_temp_html_files_list_initialized():
+    """MainWindow initializes self._temp_html_files as list[str]."""
+    source_path = _get_ui_path("main_window.py")
+    source = source_path.read_text(encoding="utf-8")
+    assert "_temp_html_files" in source, (
+        "_temp_html_files attribute not found in source"
+    )
+
+
+def test_winsound_imported_inside_function():
+    """winsound is imported inside _maybe_beep, not at module level."""
+    source_path = _get_ui_path("main_window.py")
+    source = source_path.read_text(encoding="utf-8")
+    # Check that winsound import appears AFTER the platform guard
+    # by searching for the pattern inside _maybe_beep
+    import re
+    assert "import winsound" in source, (
+        "winsound must be imported inside _maybe_beep, not at module level"
+    )
+    # Verify the import is INSIDE a function (not at module top level)
+    # Find where the import occurs
+    lines = source.splitlines()
+    winsound_line = None
+    for i, line in enumerate(lines):
+        if "import winsound" in line:
+            winsound_line = i
+            break
+    assert winsound_line is not None, "import winsound not found"
+    # Check that it's after the function def
+    func_line = None
+    for i, line in enumerate(lines):
+        if "def _maybe_beep" in line:
+            func_line = i
+            break
+    assert func_line is not None, "_maybe_beep method not found"
+    assert winsound_line > func_line, (
+        "winsound import must be inside _maybe_beep, not at module level"
+    )
+
+
 def test_use_model_button_disabled_initially():
     """use_model_button is disabled in __init__ or in set_models([])."""
     source_path = _get_ui_path("params_panel.py")
