@@ -362,6 +362,33 @@ def _get_func_name(node: ast.Call) -> str:
     return "<unknown>"
 
 
+def test_model_load_worker_binds_defaults_before_try() -> None:
+    """Regression for B1: ok/message must be bound BEFORE the try block.
+
+    Without defaults, an exception in start_server triggers
+    UnboundLocalError in the finally block, the worker dies silently,
+    and the buttons stay disabled forever.
+    """
+    import re
+    from pathlib import Path
+    src = Path("ollamachat/ui/main_window.py").read_text(encoding="utf-8")
+    m = re.search(
+        r"def _model_load_worker\(self, model: str\) -> None:.*?"
+        r"(?=\n    def |\nclass |\Z)",
+        src, re.DOTALL,
+    )
+    assert m is not None, "_model_load_worker not found in main_window.py"
+    body = m.group(0)
+    ok_pos = body.find("ok = False")
+    msg_pos = body.find('message = "Error: start_server raised')
+    try_pos = body.find("try:")
+    assert ok_pos > 0, "ok = False must be bound in _model_load_worker"
+    assert msg_pos > 0, 'message = "Error: start_server raised an exception" must be bound'
+    assert try_pos > 0, "try: block not found"
+    assert ok_pos < try_pos, "ok = False must appear BEFORE the try: block"
+    assert msg_pos < try_pos, 'message = "Error..." must appear BEFORE the try: block'
+
+
 def _get_attr_name(node: ast.AST) -> str:
     """Extract the dotted name from a nested attribute node."""
     if isinstance(node, ast.Attribute):

@@ -346,9 +346,21 @@ class MainWindow(wx.Frame):
         self._model_load_thread.start()
 
     def _model_load_worker(self, model: str) -> None:
-        """Background thread worker for starting the server."""
+        """Background thread worker for starting the server.
+
+        `ok` and `message` are bound to safe defaults BEFORE the try so
+        the finally block can call `_on_start_server_done` even if
+        `start_server` raises. Without the defaults, an exception in
+        `start_server` triggers `UnboundLocalError` in the finally
+        block, the worker thread dies silently, and the buttons stay
+        disabled forever.
+        """
+        ok = False
+        message = "Error: start_server raised an exception"
         try:
             ok, message = start_server(model, self._client)
+        except Exception as e:
+            message = f"Error: {type(e).__name__}: {e}"
         finally:
             if self._loading_timer is not None:
                 self._loading_timer.cancel()

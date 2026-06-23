@@ -13,32 +13,21 @@ so MSAA exposes them to NVDA/JAWS in a predictable reading order.
 
 ### Requirement: Read-only Conversation Display
 
-The chat panel SHALL provide a read-only multiline text control named
-`conversation_display` that displays the full transcript of the current
-conversation (both user and assistant turns, prefixed with `[Usuario]` and
-`[Asistente]` respectively). The control MUST be created with style flags
-`TE_MULTILINE | TE_READONLY | TE_RICH2` so NVDA can navigate it line by line.
+The chat panel SHALL provide a `wx.ListBox` named `message_list` (preceded by `wx.StaticText("Historial:")`) and a `wx.TextCtrl` named `stream_display` (preceded by `wx.StaticText("Respuesta actual:")`) with `TE_MULTILINE | TE_READONLY | TE_RICH2`. The panel SHALL keep a parallel `self._history: list[tuple[str, str]]`; `message_list` rows format as `"[Tú] <first 80 chars>"` or `"[IA] <first 80 chars>"` and auto-select the last item on append. All sizers MUST be `wx.BoxSizer`; `wx.GridSizer` is forbidden.
 
-#### Scenario: Append a user message
+#### Scenario: Preview, auto-select, stream isolation
 
-- GIVEN a `ChatPanel` with an empty `conversation_display`
-- WHEN the panel calls `_append_message("Hola", role="user")`
-- THEN the display's last line ends with the text `[Usuario] Hola`
-- AND the display value contains the prefix `[Usuario]` exactly once
+- **GIVEN** history is `[("user", "Hola, ¿cómo estás hoy?")]`
+- **WHEN** the list renders and a new append fires
+- **THEN** `message_list.GetString(0) == "[Tú] Hola, ¿cómo estás hoy?"` (truncated with `…` past 80)
+- **AND** `message_list.GetSelection()` points to the newly appended row
+- **AND** `on_token(" mundo")` only updates `stream_display`, not `message_list`
 
-#### Scenario: Append an assistant token
+#### Scenario: Accessibility invariants
 
-- GIVEN a `ChatPanel` with display already containing `[Usuario] Hola\n`
-- WHEN the panel receives a streamed token `"Hola "` via `on_token("Hola ")`
-- THEN the display value is `[Usuario] Hola\n[Asistente] Hola `
-- AND the appended text starts with the `[Asistente]` prefix only once (at the
-  beginning of the assistant turn, not on each token)
-
-#### Scenario: Display control is read-only [windows-only]
-
-- GIVEN the chat panel is constructed on Windows
-- WHEN a user attempts to type into `conversation_display` via keyboard
-- THEN the widget does NOT accept the keystrokes (style is `TE_READONLY`)
+- **GIVEN** the `ChatPanel` is built
+- **WHEN** the source is inspected (AST)
+- **THEN** every new `wx` control has `name=`, every interactive control is preceded by `wx.StaticText`, and only `wx.BoxSizer` is used (zero `GridSizer` matches)
 
 ### Requirement: Multiline Message Input
 
@@ -170,3 +159,55 @@ is in progress MUST abort the in-flight `OllamaClient.chat_stream` call.
 - WHEN the user presses Escape
 - THEN `OllamaClient.abort()` is invoked (sets the stop event)
 - AND `on_done` fires with an `aborted=True` signal so the UI re-enables controls
+
+## Added in v0.3.0
+
+### Requirement: Message Detail Dialog
+
+`MessageDetailDialog` SHALL be a `wx.Dialog` (`name="message_detail_dialog"`) with one read-only `wx.TextCtrl` named `content_text` (`TE_MULTILINE | TE_READONLY | TE_RICH2`) and three native `wx.Button`s named `open_browser_button`, `copy_button`, `close_button`. The dialog MUST call `content_text.SetFocus()` in `__init__` and MUST close on `Escape` via `EndModal(wx.ID_CANCEL)`. AST MUST verify zero `MessageDialog` tokens in `message_detail_dialog.py` (AGENTS.md).
+
+#### Scenario: Focus, Escape, no MessageDialog
+
+- **GIVEN** the dialog is constructed with text `"Hola"`
+- **THEN** `FindFocus()` is `content_text`
+- **AND** `Escape` calls `EndModal(wx.ID_CANCEL)`
+- **AND** the source contains no `MessageDialog` token
+
+### Requirement: Open Message in System Browser
+
+`MainWindow._open_message_in_browser(text)` SHALL write a UTF-8 `.html` tempfile (`tempfile.NamedTemporaryFile(suffix=".html", delete=False)`), render via `markdown.markdown(text)`, open with `webbrowser.open(path)`, and append the path to `self._temp_html_files`. `markdown` MUST be added to `pyproject.toml`.
+
+#### Scenario: Tempfile is tracked and cleaned on close
+
+- **GIVEN** `_open_message_in_browser("# Hola")` is called
+- **THEN** `len(self._temp_html_files) == 1`, the file exists, and `_on_close` calls `os.unlink(p)` (try/except) and clears the list
+
+### Requirement: Context Menu on Message List
+
+`message_list` SHALL bind `EVT_CONTEXT_MENU` to a `wx.Menu` with three items, all with `name=`: `menu_copy_message` (`Ctrl+C`), `menu_open_browser` (`Ctrl+Enter`), `menu_delete_message`. The `menu_delete_message` item MUST be omitted when a generation is in progress.
+
+#### Scenario: Menu shrinks while generating
+
+- **GIVEN** the panel is idle
+- **THEN** the menu has three items with the documented `name=` values
+- **WHEN** `start_generation()` runs
+- **THEN** `menu_delete_message` is removed and the other two remain
+
+### Requirement: Public History Accessors
+
+`ChatPanel` SHALL expose `get_message_at(index)` (returns `(role, content)` or raises `IndexError`), `get_history()` (returns a copy of `self._history`), and `set_history(items)` (replaces `self._history` and repopulates `message_list`). All three MUST be safe from any thread — no wx objects in the return value.
+
+#### Scenario: Round-trip via accessors
+
+- **GIVEN** `set_history([("user", "A"), ("assistant", "B")])`
+- **THEN** `get_history()` returns a copy equal to the input, `get_message_at(1) == ("assistant", "B")`, and `message_list.GetCount() == 2`
+
+### Requirement: Ctrl+C Copies Selected Message
+
+`message_list` SHALL bind `Ctrl+C` to copy the FULL (non-truncated) selected message to the clipboard and call `speech.speak("Mensaje copiado", interrupt=False)`.
+
+#### Scenario: Full body is copied
+
+- **GIVEN** the selected message has a 200-char body
+- **WHEN** `Ctrl+C` is pressed
+- **THEN** the clipboard holds the full 200-char body and `speech.speak("Mensaje copiado", interrupt=False)` is invoked

@@ -53,7 +53,7 @@ announcement on startup; failure must be silent so the app keeps booting.
 - THEN it returns `""` and does not raise
 
 ### REQ-LLAMA-003: Stream chat completions
-**Statement**: `LlamaClient.chat_stream(messages, options, on_token, on_done, on_error)`
+**Statement**: `LlamaClient.chat_stream(messages, options, on_token, on_done, on_error, on_usage: Callable[[dict], None] | None = None)`
 MUST spawn a daemon `threading.Thread` and POST `{base_url}/v1/chat/completions`
 with a JSON body that contains `messages`, `stream: true`, `model: "local"`,
 and the sampling parameters at the **root** of the body (NOT nested in an
@@ -65,8 +65,11 @@ forwarded to `on_token`; lines equal to `data: [DONE]` terminate the stream
 without an error; blank lines and lines that fail JSON decoding are skipped
 silently. The worker MUST handle SSE lines that span multiple `recv()` calls
 by buffering until a newline is seen.
+
+Inside `_stream_worker`, when an SSE chunk's decoded JSON contains an `"usage"` key, the worker MUST call `wx.CallAfter(on_usage, chunk["usage"])` IF `on_usage is not None`. The absence of a `"usage"` key in any chunk MUST be silent (no error, no callback). The original `on_token` / `on_done` / `on_error` contract, the daemon thread, the SSE parser, the abort event, and the body shape are unchanged.
 **Rationale**: Token-by-token streaming is required for responsive speech
 synthesis; SSE is the only transport the OpenAI-compatible endpoint exposes.
+The optional `on_usage` callback allows the UI to capture and display token-usage statistics reported by `llama-server` in the final SSE chunk.
 **Decision locked**: the client itself invokes `wx.CallAfter` (importing `wx`
 inside the worker function only) — this mirrors the existing
 `OllamaClient` pattern and keeps the orchestrator simple.
@@ -76,6 +79,13 @@ inside the worker function only) — this mirrors the existing
 - THEN exactly two `CallAfter` invocations to `on_token` are recorded
 - AND one `CallAfter` invocation to `on_done` is recorded
 - AND no `CallAfter` invocation to `on_error` is recorded
+
+- GIVEN a stubbed stream whose final SSE event is `{"usage": {"prompt_tokens": 12, "completion_tokens": 80, "total_tokens": 92}}`
+- AND `on_usage` is a fake recording function
+- WHEN `chat_stream(..., on_usage=on_usage)` is called
+- THEN `on_usage` is invoked exactly once
+- AND the argument is the dict `{"prompt_tokens": 12, "completion_tokens": 80, "total_tokens": 92}`
+- AND the invocation is wrapped in `wx.CallAfter`
 
 - GIVEN a `requests.post` that raises `ConnectionError`
 - WHEN `chat_stream(...)` is called
@@ -98,6 +108,17 @@ inside the worker function only) — this mirrors the existing
 - GIVEN a stubbed stream whose bytes arrive in two `recv()` chunks that split a single SSE line
 - WHEN the stream is parsed
 - THEN the line is reassembled and the token is forwarded
+
+- GIVEN a stream that yields no `"usage"` key in any chunk
+- AND `on_usage` is `None`
+- WHEN `chat_stream(...)` is called
+- THEN no exception is raised
+- AND `on_token` and `on_done` are invoked as before
+
+- GIVEN `chat_stream(messages, options, on_token, on_done, on_error)` is called WITHOUT `on_usage`
+- WHEN the stream yields a usage chunk
+- THEN no `TypeError` is raised
+- AND the stream completes normally
 
 ### REQ-LLAMA-004: Abort an in-flight stream
 **Statement**: `LlamaClient.abort()` MUST set an internal `threading.Event`
