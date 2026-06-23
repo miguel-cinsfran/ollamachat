@@ -77,9 +77,9 @@ Estructura `ollamachat/{core,ui,data}/` (no cambiarla). Sin `ruff`/`mypy` (pytes
 - **`size:exception` está OK** si forecast > budget. Single PR estructurado en commits work-unit (15 para v0.3.0) es revisable commit por commit.
 
 ### Sub-agents
-- `qwen3.7-plus` (design/tasks/verify) se colgó 2 veces con contexto largo sin error visible. Si cambia el modelo, registrar acá el resultado.
-- `deepseek-v4-flash` (apply/archive) anduvo bien para tareas de ejecución.
-- `minimax-m3` (propose/spec/orquestador) anduvo bien para tareas de síntesis.
+- Diagnóstico v0.3.0: contexto largo en el prompt puede colgar sub-agents silenciosamente. Acción: granularizar prompts en v0.4.0+ (dividir en 2+ llamadas cuando el contexto crece).
+- `deepseek-v4-flash` anduvo bien para tareas de ejecución.
+- `minimax-m3` anduvo bien para tareas de síntesis.
 - **Táctica**: si un sub-agente cuelga, el orquestador escribe el artefacto inline como senior architect. Ya funcionó en `design.md` y `tasks.md` de v0.3.0.
 
 ### Code patterns (código wx multi-thread)
