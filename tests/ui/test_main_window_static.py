@@ -995,3 +995,26 @@ def test_f7_accelerator_defined():
     source_path = _get_ui_path("main_window.py")
     source = source_path.read_text(encoding="utf-8")
     assert "WXK_F7" in source, "F7 accelerator entry not found in source"
+
+
+def test_f6_has_four_targets():
+    """_on_f6_cycle references restart_server_button as the 4th target."""
+    source_path = _get_ui_path("main_window.py")
+    source = source_path.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    method = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "_on_f6_cycle":
+            method = node
+            break
+
+    assert method is not None, "_on_f6_cycle method not found"
+    source_lines = source.splitlines()
+    start = method.lineno - 1
+    end = method.end_lineno
+    method_source = "\n".join(source_lines[start:end])
+
+    assert "restart_server_button" in method_source, (
+        "_on_f6_cycle must reference restart_server_button as the 4th target"
+    )

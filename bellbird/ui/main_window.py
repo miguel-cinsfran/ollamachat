@@ -338,17 +338,20 @@ class MainWindow(wx.Frame):
             self.restart_server_button.SetFocus()
 
     def _on_f6_cycle(self) -> None:
-        """Cycle focus through main panels: params, list, input."""
+        """Cycle focus through main panels: params, list, input, server row."""
         targets = [
             self.params_panel.model_selector,
             self.chat_panel.message_list,
             self.chat_panel.message_input,
+            self.restart_server_button,
         ]
+        panel_names = ["Modelos", "Historial", "Entrada", "Servidor"]
+        # Keep panel_names in sync with the targets list above (same length, same order).
         self._focus_cycle_index = (self._focus_cycle_index + 1) % len(targets)
         target = targets[self._focus_cycle_index]
         wx.CallAfter(target.SetFocus)
         self._speech.speak(
-            f"Panel {self._focus_cycle_index + 1} de {len(targets)}",
+            panel_names[self._focus_cycle_index],
             interrupt=True,
         )
 
