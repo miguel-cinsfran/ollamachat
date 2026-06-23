@@ -104,6 +104,21 @@ class Speech:
         except Exception:
             pass
 
+    def clear_buffer(self) -> None:
+        """Discard the token-chunk buffer without speaking it.
+
+        Called from the abort path to clear any buffered token fragments
+        that have not yet been flushed to speech. Never-crash: all
+        exceptions are caught and suppressed.
+
+        Main-thread only: writes self._buffer; the only concurrent reader
+        is announce_token_chunk, also on the main thread via wx.CallAfter.
+        """
+        try:
+            self._buffer = ""
+        except Exception:
+            pass
+
     def flush_token_buffer(self) -> None:
         """Speak any remaining buffer content and clear it."""
         try:

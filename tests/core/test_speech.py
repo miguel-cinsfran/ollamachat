@@ -265,6 +265,24 @@ def test_flush_empty_buffer_noop(mock_auto):
     mock_auto.return_value.speak.assert_not_called()
 
 
+# ─── clear_buffer ─────────────────────────────────────────────────────────────
+
+
+def test_clear_buffer_discards_without_speaking(mock_auto):
+    """Given a non-empty buffer, clear_buffer discards without speaking.
+
+    RED→GREEN: write test first, confirm failure, then implement.
+    """
+    from bellbird.core.speech import Speech
+
+    speech = Speech()
+    speech._buffer = "fragmento pendiente"
+    speech.clear_buffer()
+    assert speech._buffer == ""
+    mock_auto.return_value.speak.assert_not_called()
+    mock_auto.return_value.output.assert_not_called()
+
+
 # ─── Never-Crash Guarantee ────────────────────────────────────────────────────
 
 
