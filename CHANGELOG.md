@@ -4,9 +4,12 @@ Todas las versiones notables del proyecto Bellbird.
 
 ## [Pendiente] — Roadmap
 
-### v0.4.1 (bug conocido)
+### v0.4.2 (bug conocido)
 - Agregar mensaje assistant con `tool_calls[]` a la conversación antes del segundo turno.
   Sin él, llama-server puede rechazar el request según el Jinja template del modelo.
+- `wx.SpinCtrl` no soporta `step=512` nativamente; el spin de `ctx_size` en el
+  PreferencesDialog incrementa de a 1 (sigue funcionando escribiendo el valor).
+  Migración futura: spin doble custom o `wx.lib.masked.numctrl`.
 
 ### v0.5.0 (features)
 - **Context overflow**: warning cuando la conversación se acerca al context window;
@@ -21,6 +24,37 @@ Todas las versiones notables del proyecto Bellbird.
 ### Verificación pendiente (toda la UI)
 - Primera prueba real con NVDA en Windows 11 — ninguna versión ha sido probada en vivo.
   Empezar por: F2, PermissionDialog, ListBox navigation, Save/Load, Tool calling.
+
+## [0.4.1] - 2026-06-23
+
+### Agregado
+- **PreferencesDialog** (`bellbird/ui/preferences_dialog.py`) con `wx.Notebook` de 5 pestañas (General / Modelo / Chat / Herramientas / Avanzado) que edita los 13 campos de `BellbirdConfig`. Cada control tiene `name=`, está precedido por `wx.StaticText`, usa solo `BoxSizer`, y `SetEscapeId(wx.ID_CANCEL)`. Sliders anuncian su valor via speech.
+- **Menú Preferencias**: `Archivo → Preferencias (Ctrl+,)` abre el dialog. OK persiste con `save_config`; Cancel/Escape deja `self._config` intacto. El placeholder `wx.ID_PREFERENCES` (que vivía en `Ayuda → Atajos de teclado`) se reasignó a este item; el de atajos ahora usa `self.ID_SHORTCUTS = wx.NewIdRef()`.
+- **BellbirdConfig** (`bellbird/core/config.py`): dataclass wx-free con 13 campos, `load_config()`/`save_config()` con atomic write (`.tmp` + `Path.replace`). `MainWindow` lo carga en `__init__` y propaga `port`/`ctx_size`/`n_gpu_layers` a `start_server(...)`.
+- **Acelerador `Ctrl+,`** agregado al accelerator table de `MainWindow` para abrir el dialog de Preferencias.
+- 5 tests AST nuevos (`tests/ui/test_preferences_dialog_static.py`): tab labels, no GridSizer, SetEscapeId, OK handler ordering, every widget has `name=`.
+
+### Cambiado
+- `LlamaClient(base_url=...)` se instancia con `f"http://localhost:{self._config.port}"` en vez de hardcodear `8080`.
+- `_on_start_server` delega en `_on_use_model` para no bloquear la UI durante el polling de hasta 60 s de `start_server` (loop en hilo de fondo con anuncios periódicos).
+- `params_panel` ya no es la única fuente de `port`/`ctx_size`; esos valores vienen de `BellbirdConfig` cuando aplica.
+- `use_model_button` se habilita cuando el usuario tipea un path en el ComboBox (no solo cuando elige del dropdown) — la tecla `EVT_TEXT` ya estaba bindeada en v0.4.0 pero la lógica se hizo idempotente.
+- Documentadas en `README.md` los nuevos atajos de teclado (Supr para borrar mensaje, F2/F6).
+
+### Arreglado
+- **Race entre `new_conversation` y callbacks de stream**: `_on_token` / `_on_done` / `_on_error` descartan callbacks tardíos con guard `if not self._is_generating: return`. Sin esto, un error tardío podía popear un `MessageDialog` y `_on_done` tardío hablaba "Respuesta completa" encima de la nueva sesión.
+- **Tecla `Supr` en historial**: gated por `_is_generating` para no borrar mensajes durante una generación en curso.
+- Botón "Usar modelo" se habilitaba con `EVT_COMBOBOX` pero no con `EVT_TEXT`; ahora ambos paths activan el botón.
+
+### Conocido
+- Verificación manual con NVDA en Windows 11 pendiente (5 tareas `[windows-only]`): Tab order del chat panel, F2 announcement, Alt+N shortcuts, popup Tab order del PreferencesDialog, slider mapping con speech feedback.
+- **Race residual** (aceptado, ventana de pocos ms): si el usuario hace `new_conversation` y envía en el mismo tick del event loop, un token tardío podría colarse porque `_is_generating` ya volvió a `True`. Mitigación futura: `_generation_id` capturado en closures de `chat_stream`.
+- **AST coverage del menu integration** pendiente como follow-up: el id reassignment de `wx.ID_PREFERENCES` está verificado solo por code review, no por test. SUGGESTION-2 del verify v0.4.1.
+- `wx.SpinCtrl` no soporta `step=512` nativamente (deferido a v0.4.2).
+
+### Tests
+- **222 / 222 verde** (217 previos + 5 nuevos AST para `PreferencesDialog`).
+- 1 fix post-verify (SUGGESTION-1): `test_set_escape_id_called` fortalecido de substring check a regex `SetEscapeId(wx.ID_CANCEL)`.
 
 ## [0.4.0] - 2026-06-23
 
