@@ -217,6 +217,10 @@ class ChatPanel(wx.Panel):
         rows in the message list when the user aborts immediately.
         """
         final = self.stream_display.GetValue()
+        PREFIX = "[Asistente] "
+        if final.startswith(PREFIX):
+            final = final[len(PREFIX):]
+        final = final.rstrip("\n")
         if final.strip():
             self._history.append(("assistant", final))
             preview = f"[IA] {self._preview(final)}"

@@ -429,6 +429,29 @@ def test_on_context_delete_calls_callback():
     )
 
 
+def test_end_generation_strips_asistente_prefix():
+    """end_generation strips the '[Asistente] ' prefix from persisted history (BUG 2)."""
+    source_path = _get_ui_path("chat_panel.py")
+    source = source_path.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    found_startswith = False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "end_generation":
+            for child in ast.walk(node):
+                if isinstance(child, ast.Call):
+                    func_name = _get_func_name(child)
+                    if "startswith" in func_name:
+                        found_startswith = True
+                        break
+
+    assert found_startswith, (
+        "end_generation must strip the '[Asistente] ' prefix from stream_display "
+        "content before appending to _history (BUG 2). Expected a .startswith() call "
+        "in the method body."
+    )
+
+
 def test_end_generation_skips_empty_preview() -> None:
     """Regression for B3: message_list.Append must be INSIDE the strip() guard.
 
