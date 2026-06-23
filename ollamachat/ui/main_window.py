@@ -127,6 +127,9 @@ class MainWindow(wx.Frame):
         self.params_panel.browse_model_button.Bind(
             wx.EVT_BUTTON, lambda evt: self._on_browse_model()
         )
+        self.params_panel.use_model_button.Bind(
+            wx.EVT_BUTTON, lambda evt: self._on_use_model()
+        )
 
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(toolbar_sizer, flag=wx.ALL, border=8)
@@ -228,6 +231,82 @@ class MainWindow(wx.Frame):
             self.stop_server_button.Enable()
         else:
             self.stop_server_button.Disable()
+
+    def _on_use_model(self) -> None:
+        """Start llama-server with the selected model in a background thread."""
+        model = self.params_panel.get_model()
+        if not model or not Path(model).is_file():
+            self._speech.speak("Archivo de modelo no encontrado", interrupt=True)
+            return
+        basename = Path(model).name
+        self.params_panel.use_model_button.Disable()
+        self.restart_server_button.Disable()
+        self._speech.speak(
+            f"Iniciando servidor con {basename}...", interrupt=True
+        )
+        self.status_bar.SetStatusText("Iniciando servidor...", 0)
+        self._loading_timer = self._make_announce_timer()
+        self._model_load_thread = threading.Thread(
+            target=self._model_load_worker,
+            args=(model,),
+            daemon=True,
+        )
+        self._model_load_thread.start()
+
+    def _model_load_worker(self, model: str) -> None:
+        """Background thread worker for starting the server."""
+        try:
+            ok, message = start_server(model, self._client)
+        finally:
+            if self._loading_timer is not None:
+                self._loading_timer.cancel()
+            wx.CallAfter(self._on_start_server_done, ok, message)
+
+    def _make_announce_timer(self) -> threading.Timer:
+        """Create a chained timer that announces loading progress.
+
+        First tick fires after 8 seconds; re-arms itself every 8s.
+        Cancelled when the load worker completes.
+        """
+        def _announce() -> None:
+            if self._is_closing:
+                return
+            self._speech.speak(
+                "Cargando modelo, por favor espera...", interrupt=False
+            )
+            self._loading_timer = threading.Timer(8.0, _announce)
+            self._loading_timer.daemon = True
+            self._loading_timer.start()
+
+        t = threading.Timer(8.0, _announce)
+        t.daemon = True
+        t.start()
+        return t
+
+    def _on_start_server_done(self, ok: bool, message: str) -> None:
+        """Handle the result of background server start."""
+        if self._loading_timer is not None:
+            self._loading_timer.cancel()
+            self._loading_timer = None
+        if self._is_closing:
+            return
+        if ok:
+            self.status_bar.SetStatusText("Servidor listo", 0)
+            loaded = self._client.get_loaded_model()
+            self._update_title(loaded or None)
+            if "corriendo" not in message:
+                self._scan_models()
+        else:
+            self.status_bar.SetStatusText("Error al iniciar", 0)
+        self._sync_button_state(ok)
+        self._speech.speak(message, interrupt=True)
+
+    def _update_title(self, model: str | None) -> None:
+        """Update the window title to show the loaded model."""
+        if model:
+            self.SetTitle(f"OllamaChat — {Path(model).stem}")
+        else:
+            self.SetTitle("OllamaChat")
 
     # ── Startup ────────────────────────────────────────────────────────────
 
