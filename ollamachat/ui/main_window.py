@@ -861,13 +861,16 @@ class MainWindow(wx.Frame):
     def _on_close(self, event: wx.CloseEvent) -> None:
         """Handle window close with confirmation, cleanup, and abort.
 
-        Sets _is_closing first to gate background threads, shows confirm
-        dialog if there are unsaved messages, aborts streaming, stops
-        the server, and cleans up temp HTML files.
+        The confirm dialog runs FIRST; only after the user confirms
+        do we set `_is_closing = True` to gate background threads.
+        If the user cancels (No), the app stays fully functional:
+        the 8s announce timer keeps firing, F2 status stays accurate,
+        and the context menu continues to behave correctly. Setting
+        the flag before the dialog would leave it stuck at True for
+        the rest of the app's life after any cancelled close.
         """
-        self._is_closing = True
         log = get_logger()
-        log.info("Window closing")
+        log.info("Window close requested")
 
         # Confirm if there are unsaved messages
         if len(self._conversation.messages) > 0:
@@ -880,9 +883,12 @@ class MainWindow(wx.Frame):
             result = dlg.ShowModal()
             dlg.Destroy()
             if result != wx.ID_YES:
+                log.info("User cancelled close; app continues running")
                 event.Veto()
                 return
 
+        # User confirmed (or no messages to save). NOW gate background threads.
+        self._is_closing = True
         log.info("Aborting stream and stopping llama-server")
         self._client.abort()
         stop_server()

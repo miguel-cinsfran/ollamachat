@@ -362,6 +362,34 @@ def _get_func_name(node: ast.Call) -> str:
     return "<unknown>"
 
 
+def test_on_close_sets_is_closing_after_confirm_not_before() -> None:
+    """Regression for B2: _is_closing = True must come AFTER the confirm dialog.
+
+    If the flag is set before the user confirms, clicking "No" leaves
+    the flag stuck at True for the rest of the app's life. The 8s
+    announce timer skips every tick, F2 status goes stale, and the
+    context menu logic is wrong.
+    """
+    import re
+    from pathlib import Path
+    src = Path("ollamachat/ui/main_window.py").read_text(encoding="utf-8")
+    m = re.search(
+        r"def _on_close\(self, event: wx\.CloseEvent\) -> None:.*?"
+        r"(?=\n    def |\nclass |\Z)",
+        src, re.DOTALL,
+    )
+    assert m is not None, "_on_close not found in main_window.py"
+    body = m.group(0)
+    set_pos = body.find("self._is_closing = True")
+    dlg_pos = body.find("wx.MessageDialog(")
+    assert set_pos > 0, "self._is_closing = True not found in _on_close"
+    assert dlg_pos > 0, "wx.MessageDialog (confirm dialog) not found in _on_close"
+    assert set_pos > dlg_pos, (
+        "self._is_closing = True must come AFTER wx.MessageDialog — "
+        "the flag should only be set after the user confirms the close"
+    )
+
+
 def test_model_load_worker_binds_defaults_before_try() -> None:
     """Regression for B1: ok/message must be bound BEFORE the try block.
 
