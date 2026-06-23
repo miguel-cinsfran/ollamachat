@@ -2,6 +2,29 @@
 
 Todas las versiones notables del proyecto Bellbird.
 
+## [0.5.0] - 2026-06-23
+
+### Cambiado
+- **Layout refactor**: `wx.SplitterWindow` + `ParamsPanel` (280px left pane) reemplazado por un `wx.BoxSizer(wx.VERTICAL)` con fila superior de controles de modelo y servidor + `ChatPanel` a ancho completo (~900px). El chat gana ~280px de ancho, reduciendo saltos de línea.
+- **Modelo y parámetros**: los 7 campos de sampling (temperature, max_tokens, top_p, top_k, repeat_penalty, system_prompt, tools_enabled) ahora se leen directamente de `BellbirdConfig` en vez de `params_panel.get_params()`/`get_system_prompt()`/`get_tools_enabled()`. La config se edita solo desde Preferencias (Ctrl+,).
+- **Model selector**: `model_selector` (ComboBox), `scan_models_button`, `browse_model_button`, `use_model_button` promovidos a hijos directos del Frame.
+- **Servidor menu**: nuevo menú "Servidor" entre Archivo y Ayuda con "Iniciar servidor" (F7), "Detener servidor" (Ctrl+F7), separador, "Buscar modelos" (F5).
+- **F6 cycle**: target 0 actualizado de `self.params_panel.model_selector` a `self.model_selector`.
+- **F2**: temperatura y top-p leídos de `self._config` en vez de sliders.
+- **Window size**: default cambiado de `(1100, 700)` a `(900, 650)`.
+- **Atajos**: Alt+4 (temperatura) y Alt+5 (system prompt) eliminados; sus controles ya no están en la ventana principal.
+
+### Eliminado
+- `bellbird/ui/params_panel.py` (365 líneas) — toda su funcionalidad migrada a MainWindow y BellbirdConfig.
+- `tests/ui/test_params_panel_static.py` (353 líneas) — 10 tests obsoletos.
+- `test_splitter_window` de `test_main_window_static.py`.
+- `wx.SplitterWindow` de MainWindow.
+
+### Tests
+- 7 nuevos AST tests en `test_main_window_static.py`: no SplitterWindow, model_selector como Frame child, Servidor menu, params desde config, F6 target 0, window 900x650, version 0.5.0.
+- 3 tests `test_use_model_button_*` reescritos para apuntar a `main_window.py` en vez de `params_panel.py`.
+- Red: ~218 tests (222 baseline - 1 splitter - 10 params_panel + 7 nuevos).
+
 ## [Pendiente] — Roadmap
 
 ### v0.4.2 (bug conocido)
