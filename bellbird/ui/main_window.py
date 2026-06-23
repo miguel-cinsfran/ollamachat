@@ -1297,8 +1297,6 @@ class MainWindow(wx.Frame):
             "Alt+1: Foco en campo de mensaje\n"
             "Alt+2: Foco en historial\n"
             "Alt+3: Foco en selector de modelo\n"
-            "Alt+4: Foco en temperatura\n"
-            "Alt+5: Foco en prompt de sistema\n"
             "Alt+6: Foco en usar modelo\n"
             "Ctrl+N: Nueva conversación\n"
             "Ctrl+O: Abrir conversación\n"

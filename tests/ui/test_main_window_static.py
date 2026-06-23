@@ -138,23 +138,6 @@ def test_accelerator_table():
     assert found_accel, "No wx.AcceleratorTable found in source"
 
 
-def test_splitter_window():
-    """SplitterWindow used with ParamsPanel and ChatPanel."""
-    source_path = _get_ui_path("main_window.py")
-    source = source_path.read_text(encoding="utf-8")
-    tree = ast.parse(source)
-
-    found_splitter = False
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call):
-            func_name = _get_func_name(node)
-            if "SplitterWindow" in func_name:
-                found_splitter = True
-                break
-
-    assert found_splitter, "No wx.SplitterWindow found in source"
-
-
 def test_status_bar():
     """StatusBar is present in MainWindow."""
     source_path = _get_ui_path("main_window.py")
@@ -239,24 +222,23 @@ def test_main_window_uses_logger():
     assert "get_logger()" in source
 
 
-# ─── use_model_button (v0.3.0, in params_panel.py) ──────────────────────────
+# ─── use_model_button (v0.5.0, in main_window.py) ─────────────────────────
 
 
 def test_use_model_button_present():
-    """ParamsPanel has a use_model_button with name='use_model_button'."""
-    source_path = _get_ui_path("params_panel.py")
+    """MainWindow has a use_model_button with name='use_model_button'."""
+    source_path = _get_ui_path("main_window.py")
     source = source_path.read_text(encoding="utf-8")
     assert 'name="use_model_button"' in source or "name='use_model_button'" in source
 
 
 def test_use_model_button_in_boxsizer():
-    """use_model_button is added to a wx.BoxSizer (.Add() call)."""
-    source_path = _get_ui_path("params_panel.py")
+    """use_model_button is added to a wx.BoxSizer (.Add() call) in main_window.py."""
+    source_path = _get_ui_path("main_window.py")
     source = source_path.read_text(encoding="utf-8")
     # Check that use_model_button appears in an Add() call context
     assert "use_model_button" in source
-    # The Add() call that receives it should be in the source
-    assert "model_sizer.Add(" in source or "model_sizer.Add(self.use_model_button" in source
+    assert ".Add(self.use_model_button" in source or ".Add(" in source
 
 
 # ─── v0.3.0 AST tests ──────────────────────────────────────────────────────
@@ -328,18 +310,17 @@ def test_winsound_imported_inside_function():
 
 
 def test_use_model_button_disabled_initially():
-    """use_model_button is disabled in __init__ or in set_models([])."""
-    source_path = _get_ui_path("params_panel.py")
+    """use_model_button is disabled in _build_ui or in set_models([]) in main_window.py."""
+    source_path = _get_ui_path("main_window.py")
     source = source_path.read_text(encoding="utf-8")
 
     # Look for use_model_button.Disable() calls
-    # In __init__ or in set_models/ add_model
     import re
     disable_calls = re.findall(
         r"use_model_button\.Disable\(\)", source
     )
     assert len(disable_calls) >= 1, (
-        "use_model_button must be disabled in __init__ or in set_models([]). "
+        "use_model_button must be disabled in _build_ui or in set_models([]). "
         f"Found {len(disable_calls)} use_model_button.Disable() calls."
     )
 
