@@ -1010,6 +1010,59 @@ def test_callbacks_guard_on_is_generating() -> None:
         )
 
 
+# ─── v0.5.1 send_message double-send guard ───────────────────────────────
+
+
+def test_send_message_guards_on_is_generating() -> None:
+    """Regression: send_message must return early if _is_generating is True.
+
+    Without the guard, pressing Enter twice (e.g. 'hola' then 'hola?'
+    before the first response arrives) aborts the first stream and starts
+    a second one.  The first stream's _on_done callback fires from the
+    wx.CallAfter queue, says 'Respuesta completa' with empty content, and
+    resets _is_generating=False.  The second stream's _on_done then skips
+    everything because _is_generating is already False — no response saved.
+    """
+    source_path = _get_ui_path("main_window.py")
+    source = source_path.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    method = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "send_message":
+            method = node
+            break
+    assert method is not None, "send_message not found in main_window.py"
+
+    # Find first non-docstring statement
+    first_stmt = None
+    for stmt in method.body:
+        if (
+            isinstance(stmt, ast.Expr)
+            and isinstance(stmt.value, ast.Constant)
+            and isinstance(stmt.value.value, str)
+        ):
+            continue  # docstring
+        first_stmt = stmt
+        break
+
+    assert first_stmt is not None, "send_message has no body"
+    assert isinstance(first_stmt, ast.If), (
+        "send_message first executable statement must be an `if` guard "
+        "against double-send. "
+        f"Got: {type(first_stmt).__name__}"
+    )
+    cond_dump = ast.dump(first_stmt.test)
+    assert "_is_generating" in cond_dump, (
+        "send_message guard condition must reference self._is_generating. "
+        f"Got: {cond_dump}"
+    )
+    # Guard body must end with a return (may have a speech call before it)
+    assert any(isinstance(s, ast.Return) for s in first_stmt.body), (
+        "send_message guard body must contain a return statement"
+    )
+
+
 # ─── v0.4.1 keyboard navigation improvements ────────────────────────────
 
 

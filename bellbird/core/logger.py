@@ -25,6 +25,13 @@ _LOG_DIRNAME = "data"
 _LOG_FILENAME = "bellbird.log"
 _LOGGER_NAME = "bellbird"
 
+_log_path: Path | None = None
+
+
+def get_log_path() -> Path | None:
+    """Return the path to the current log file, or None if not yet initialised."""
+    return _log_path
+
 
 def get_logger(name: str = _LOGGER_NAME) -> logging.Logger:
     """Return a configured logger that writes to ``data/bellbird.log``.
@@ -45,6 +52,7 @@ def get_logger(name: str = _LOGGER_NAME) -> logging.Logger:
     Returns:
         A configured ``logging.Logger`` instance.
     """
+    global _log_path
     logger = logging.getLogger(name)
     if getattr(logger, "_bellbird_configured", False):
         return logger
@@ -57,6 +65,7 @@ def get_logger(name: str = _LOGGER_NAME) -> logging.Logger:
         log_dir = Path.cwd() / _LOG_DIRNAME
         log_dir.mkdir(parents=True, exist_ok=True)
         log_path = log_dir / _LOG_FILENAME
+        _log_path = log_path
 
         handler = logging.FileHandler(log_path, encoding="utf-8")
         handler.setFormatter(logging.Formatter(_LOG_FORMAT))

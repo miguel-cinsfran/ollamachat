@@ -6,6 +6,7 @@ LlamaClient, LlamaRunner, Conversation, and Speech.
 """
 
 import os
+import subprocess
 import sys
 import tempfile
 import threading
@@ -27,7 +28,7 @@ from bellbird.core.llama_runner import (
     start_server,
     stop_server,
 )
-from bellbird.core.logger import get_logger
+from bellbird.core.logger import get_logger, get_log_path
 from bellbird.core.speech import Speech
 from bellbird.ui.chat_panel import ChatPanel
 from bellbird.core.config import load_config
@@ -381,6 +382,14 @@ class MainWindow(wx.Frame):
         self.Bind(
             wx.EVT_MENU, lambda evt: self._show_shortcuts(), menu_shortcuts
         )
+
+        self.ID_OPEN_LOG = wx.NewIdRef()
+        menu_log = ayuda_menu.Append(
+            self.ID_OPEN_LOG,
+            "Log de depuración",
+            "Abrir el archivo de registro en el editor de texto",
+        )
+        self.Bind(wx.EVT_MENU, lambda evt: self._open_log_file(), menu_log)
 
         menu_bar.Append(ayuda_menu, "A&yuda")
 
@@ -811,6 +820,12 @@ class MainWindow(wx.Frame):
         Accepts plain text, text with images, or images only. If neither
         text nor images are present, the message is ignored.
         """
+        if self._is_generating:
+            self._speech.speak("Ya se está generando una respuesta", interrupt=False)
+            return
+
+        log = get_logger()
+
         # Read input and attachments
         user_text = self.chat_panel.get_input_text()
         attached_images = self.chat_panel.get_attached_images()
@@ -899,6 +914,11 @@ class MainWindow(wx.Frame):
         self._is_generating = True
         self.chat_panel.append_assistant_prefix()
 
+        log.info(
+            "send_message: user text=%r tools_enabled=%s",
+            (user_text[:60] + "...") if len(user_text) > 60 else user_text,
+            self._config.tools_enabled,
+        )
         self.status_bar.SetStatusText("Generando respuesta...", 2)
         self._speech.speak("Generando respuesta...", interrupt=True)
 
@@ -952,6 +972,8 @@ class MainWindow(wx.Frame):
         """Handle stream completion."""
         if not self._is_generating:
             return
+        log = get_logger()
+        log.info("_on_done: response_len=%d chars", len(self._current_response))
         self._speech.flush_token_buffer()
         self._speech.speak("Respuesta completa", interrupt=True)
 
@@ -1078,6 +1100,8 @@ class MainWindow(wx.Frame):
         """
         if not self._is_generating:
             return
+        log = get_logger()
+        log.error("_on_error: %s", error_text)
         self._current_response = ""
         self.chat_panel.append_assistant_chunk(f"\n[Error: {error_text}]")
         self.chat_panel.end_generation()
@@ -1317,6 +1341,18 @@ class MainWindow(wx.Frame):
             style=wx.OK | wx.ICON_INFORMATION,
         ).ShowModal()
         self._speech.speak(shortcuts, interrupt=True)
+
+    def _open_log_file(self) -> None:
+        """Open the debug log file in a text editor."""
+        log_path = get_log_path()
+        if log_path is None or not log_path.is_file():
+            self._speech.speak("El archivo de log no existe aún", interrupt=True)
+            return
+        self._speech.speak(f"Abriendo log: {log_path.name}", interrupt=True)
+        if sys.platform == "win32":
+            subprocess.Popen(["notepad.exe", str(log_path)])
+        else:
+            subprocess.Popen(["xdg-open", str(log_path)])
 
     def _show_preferences(self) -> None:
         """Open the PreferencesDialog, persist on OK, leave untouched on Cancel."""

@@ -16,6 +16,8 @@ from typing import Any
 
 import requests
 
+from bellbird.core.logger import get_logger
+
 
 class LlamaClient:
     """Client for a local llama-server (llama.cpp's HTTP server).
@@ -151,6 +153,8 @@ class LlamaClient:
         """
         import wx  # Import wx only when needed (core/ is wx-free at top level)
 
+        log = get_logger()
+
         try:
             # Build the request body. The model key is set to "local" because
             # llama-server serves a single model chosen at startup; the API
@@ -169,6 +173,14 @@ class LlamaClient:
                 body["tools"] = tools
                 body["tool_choice"] = "auto"
 
+            log.info(
+                "stream_worker: POST /v1/chat/completions "
+                "messages=%d tools=%s options=%s",
+                len(messages),
+                "yes" if tools else "no",
+                {k: v for k, v in options.items()},
+            )
+
             # D9: use a context manager so the connection is released
             # back to the pool on exit even if an exception escapes
             # the parser. D10: check status_code so a 4xx/5xx response
@@ -180,11 +192,13 @@ class LlamaClient:
                 stream=True,
                 timeout=60,
             ) as response:
+                log.info("stream_worker: HTTP %d %s", response.status_code, response.reason or "")
                 if response.status_code != 200:
                     error_text = (
                         f"Server returned HTTP {response.status_code}: "
                         f"{response.reason or 'no reason'}"
                     )
+                    log.error("stream_worker: server error — %s", error_text)
                     wx.CallAfter(on_error, error_text)
                     return
 
@@ -198,24 +212,33 @@ class LlamaClient:
                 # Tool-call deltas are accumulated by index and dispatched
                 # when finish_reason == "tool_calls".
                 _tc_buffer: dict[int, dict] = {}
+                total_content_len = 0
+                chunk_count = 0
+                first_token_logged = False
                 for line in response.iter_lines():
                     if self._stop_event.is_set():
+                        log.info("stream_worker: aborted by stop_event after %d chunks", chunk_count)
                         break
                     if not line:
                         continue
 
                     decoded = line.decode("utf-8") if isinstance(line, bytes) else line
                     if not decoded.startswith("data: "):
+                        log.debug("stream_worker: non-data SSE line: %r", decoded[:80])
                         continue  # blank, ":comment", "event:...", "id:..." → skip
 
                     payload = decoded[len("data: "):]
                     if payload == "[DONE]":
+                        log.info("stream_worker: [DONE] received")
                         break
 
                     try:
                         chunk = json.loads(payload)
                     except json.JSONDecodeError:
+                        log.warning("stream_worker: JSON parse error on line: %r", decoded[:120])
                         continue  # malformed data line, skip
+
+                    chunk_count += 1
 
                     # Tool-call delta accumulation: extract before content
                     # so we capture finish_reason even on the final chunk.
@@ -256,7 +279,17 @@ class LlamaClient:
                         .get("content", "")
                     )
                     if content:
+                        total_content_len += len(content)
+                        if not first_token_logged:
+                            log.info("stream_worker: first token received")
+                            first_token_logged = True
                         wx.CallAfter(on_token, content)
+
+                    if finish_reason:
+                        log.info(
+                            "stream_worker: finish_reason=%r chunk=%d content_so_far=%d tool_calls_pending=%d",
+                            finish_reason, chunk_count, total_content_len, len(_tc_buffer),
+                        )
 
                     # Dispatch tool_calls when finish_reason signals it.
                     if finish_reason == "tool_calls" and on_tool_call is not None:
@@ -270,9 +303,14 @@ class LlamaClient:
                             )
                         _tc_buffer.clear()
 
+            log.info(
+                "stream_worker: done — chunks=%d total_content=%d chars",
+                chunk_count, total_content_len,
+            )
             wx.CallAfter(on_done)
 
         except Exception as e:
+            log.exception("stream_worker: unhandled exception: %s", e)
             error_text = f"{type(e).__name__}: {e}"
             try:
                 wx.CallAfter(on_error, error_text)
