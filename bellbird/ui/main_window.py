@@ -336,6 +336,34 @@ class MainWindow(wx.Frame):
 
         menu_bar.Append(archivo_menu, "Archivo")
 
+        # ── Servidor menu ─────────────────────────────────────────────
+        servidor_menu = wx.Menu()
+
+        menu_start = servidor_menu.Append(
+            self.ID_START_SERVER, "Iniciar servidor\tF7",
+            "Iniciar llama-server con el modelo seleccionado",
+        )
+        menu_start.SetName("menu_start_server")
+        # Bound to _on_use_model via ID_START_SERVER in _build_accelerators
+
+        menu_stop = servidor_menu.Append(
+            self.ID_STOP_SERVER, "Detener servidor\tCtrl+F7",
+            "Detener llama-server",
+        )
+        menu_stop.SetName("menu_stop_server")
+        # Bound to _on_stop_server via ID_STOP_SERVER in _build_accelerators
+
+        servidor_menu.AppendSeparator()
+
+        menu_scan = servidor_menu.Append(
+            wx.ID_REFRESH, "Buscar modelos\tF5",
+            "Buscar modelos .gguf en el sistema",
+        )
+        menu_scan.SetName("menu_scan_models")
+        # Bound to _scan_models via wx.ID_REFRESH in _build_accelerators
+
+        menu_bar.Append(servidor_menu, "Servidor")
+
         # ── Ayuda menu ────────────────────────────────────────────────
         ayuda_menu = wx.Menu()
         menu_about = ayuda_menu.Append(
