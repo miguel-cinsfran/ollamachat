@@ -985,3 +985,13 @@ def test_callbacks_guard_on_is_generating() -> None:
             f"{method_name} guard condition must reference "
             f"self._is_generating. Got: {cond_dump}"
         )
+
+
+# ─── v0.4.1 keyboard navigation improvements ────────────────────────────
+
+
+def test_f7_accelerator_defined():
+    """WXK_F7 appears in the accelerator entries in main_window.py."""
+    source_path = _get_ui_path("main_window.py")
+    source = source_path.read_text(encoding="utf-8")
+    assert "WXK_F7" in source, "F7 accelerator entry not found in source"

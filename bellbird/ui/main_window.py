@@ -233,6 +233,8 @@ class MainWindow(wx.Frame):
         self.ID_FOCUS_USE = wx.NewIdRef()
         self.ID_F2 = wx.NewIdRef()
         self.ID_F6 = wx.NewIdRef()
+        self.ID_START_SERVER = wx.NewIdRef()
+        self.ID_STOP_SERVER = wx.NewIdRef()
 
         accel_entries = [
             wx.AcceleratorEntry(wx.ACCEL_CTRL, ord("N"), wx.ID_NEW),
@@ -248,6 +250,8 @@ class MainWindow(wx.Frame):
             wx.AcceleratorEntry(wx.ACCEL_ALT, ord("6"), self.ID_FOCUS_USE),
             wx.AcceleratorEntry(wx.ACCEL_NORMAL, wx.WXK_F2, self.ID_F2),
             wx.AcceleratorEntry(wx.ACCEL_NORMAL, wx.WXK_F6, self.ID_F6),
+            wx.AcceleratorEntry(wx.ACCEL_NORMAL, wx.WXK_F7, self.ID_START_SERVER),
+            wx.AcceleratorEntry(wx.ACCEL_CTRL, wx.WXK_F7, self.ID_STOP_SERVER),
         ]
 
         # Bind standard accelerators
@@ -302,6 +306,16 @@ class MainWindow(wx.Frame):
             wx.EVT_MENU,
             lambda evt: self._on_f6_cycle(),
             id=self.ID_F6,
+        )
+        self.Bind(
+            wx.EVT_MENU,
+            lambda evt: self._on_use_model(),
+            id=self.ID_START_SERVER,
+        )
+        self.Bind(
+            wx.EVT_MENU,
+            lambda evt: self._on_stop_server(),
+            id=self.ID_STOP_SERVER,
         )
 
         accel_table = wx.AcceleratorTable(accel_entries)
@@ -1096,7 +1110,11 @@ class MainWindow(wx.Frame):
             "F6: Ciclar paneles\n"
             "Escape: Detener generación\n"
             "Enter: Enviar mensaje\n"
-            "Shift+Enter: Nueva línea en el input"
+            "Shift+Enter: Nueva línea en el input\n"
+            "F7: Iniciar servidor\n"
+            "Ctrl+F7: Detener servidor\n"
+            "Ctrl+Enter (en historial): Abrir en navegador\n"
+            "Supr (en historial): Eliminar mensaje\n"
         )
         wx.MessageDialog(
             self,
