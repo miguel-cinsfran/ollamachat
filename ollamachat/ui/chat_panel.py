@@ -481,7 +481,20 @@ class ChatPanel(wx.Panel):
         self.attachment_label.SetLabel("(ninguno)")
 
     def clear(self) -> None:
-        """Clear the conversation display, input, and attachments."""
+        """Clear the conversation display, input, and attachments.
+
+        If a generation is in progress when clear is called, end it
+        first so the buttons return to idle state. Otherwise the user
+        would be stuck with send disabled until the in-flight stream
+        completes (up to 60s for a long response). The stream is
+        being torn down anyway because the user is starting fresh.
+        """
+        if self._is_generating:
+            # Tear down the in-flight generation state synchronously
+            self.send_button.Enable()
+            self.attach_button.Enable()
+            self.stop_button.Disable()
+            self._is_generating = False
         self.message_list.Clear()
         self._history.clear()
         self.stream_display.Clear()

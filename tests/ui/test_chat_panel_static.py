@@ -265,6 +265,35 @@ def test_stream_display_uses_rich2():
     assert "TE_READONLY" in source, "stream_display must use TE_READONLY style"
 
 
+def test_clear_resets_generation_state() -> None:
+    """Regression for B5: clear() must reset _is_generating and re-enable buttons.
+
+    Without this, clicking "Limpiar" or "Nueva conversación" while a
+    generation is in progress leaves send_button disabled until the
+    in-flight stream completes (up to 60s for a long response).
+    """
+    from pathlib import Path
+    src = Path("ollamachat/ui/chat_panel.py").read_text(encoding="utf-8")
+    # Find the clear method specifically (not _on_clear or other helpers)
+    import re
+    m = re.search(
+        r"    def clear\(self\) -> None:.*?(?=\n    def |\nclass |\Z)",
+        src, re.DOTALL,
+    )
+    assert m is not None, "def clear(self) -> None not found in chat_panel.py"
+    body = m.group(0)
+    assert "self._is_generating" in body, (
+        "clear() must check self._is_generating to know if a "
+        "generation is in progress"
+    )
+    assert "send_button.Enable()" in body, (
+        "clear() must call self.send_button.Enable() to unblock the user"
+    )
+    assert "self._is_generating = False" in body, (
+        "clear() must set self._is_generating = False to reset the flag"
+    )
+
+
 def test_on_list_key_uses_unicode_key_not_ascii_range() -> None:
     """Regression for B4: _on_list_key must use GetUnicodeKey, not the ASCII range.
 
