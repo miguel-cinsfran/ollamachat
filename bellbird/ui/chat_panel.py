@@ -24,8 +24,8 @@ class ChatPanel(wx.Panel):
     """
 
     def __init__(self, parent: wx.Window, speech,
-                 on_send: callable | None = None,
-                 on_delete_message: callable | None = None) -> None:
+                 on_send=None,
+                 on_delete_message=None) -> None:
         super().__init__(parent)
         self._speech = speech
         self._on_send_callback = on_send
