@@ -11,7 +11,8 @@ All streaming callbacks are marshalled to the wx main thread via wx.CallAfter.
 
 import json
 import threading
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import requests
 
@@ -80,6 +81,7 @@ class LlamaClient:
         on_token: Callable[[str], None],
         on_done: Callable[[], None],
         on_error: Callable[[str], None],
+        on_usage: Callable[[dict], None] | None = None,
     ) -> None:
         """Start a streaming chat in a background daemon thread.
 
@@ -98,6 +100,7 @@ class LlamaClient:
             on_token: Called per token fragment via wx.CallAfter.
             on_done: Called once on successful completion via wx.CallAfter.
             on_error: Called once on error via wx.CallAfter.
+            on_usage: Optional callback for usage stats dict via wx.CallAfter.
         """
         # A1/A3: stop any in-flight stream before starting a new one.
         # Set the event first so the worker notices at its next line
@@ -115,7 +118,7 @@ class LlamaClient:
         self._stop_event.clear()
         self._stream_thread = threading.Thread(
             target=self._stream_worker,
-            args=(messages, options, on_token, on_done, on_error),
+            args=(messages, options, on_token, on_done, on_error, on_usage),
             daemon=True,
         )
         self._stream_thread.start()
@@ -131,6 +134,7 @@ class LlamaClient:
         on_token: Callable[[str], None],
         on_done: Callable[[], None],
         on_error: Callable[[str], None],
+        on_usage: Callable[[dict], None] | None = None,
     ) -> None:
         """Background thread worker for streaming chat.
 
@@ -198,6 +202,14 @@ class LlamaClient:
                         chunk = json.loads(payload)
                     except json.JSONDecodeError:
                         continue  # malformed data line, skip
+
+                    # Usage callback: fire before content extraction so
+                    # the on_usage hook runs even on the final chunk
+                    # which may contain usage but no delta content.
+                    if on_usage is not None:
+                        usage = chunk.get("usage")
+                        if usage is not None:
+                            wx.CallAfter(on_usage, usage)
 
                     content = (
                         chunk.get("choices", [{}])[0]

@@ -329,3 +329,57 @@ class TestLlamaClient:
         client.abort()
         # Verify no callbacks happened (session.post was never called)
         mock_session.post.assert_not_called()
+
+    # ── on_usage (v0.3.0) ────────────────────────────────────────────────
+
+    def test_chat_stream_calls_on_usage_when_present(self, mock_session, mock_call_after):
+        """Given a stream with usage in final chunk, on_usage is called with the dict."""
+        self._stub_stream(mock_session, [
+            b'data: {"choices":[{"delta":{"content":"hi"}}]}',
+            b'data: {"choices":[{"delta":{"content":" there"}}]}',
+            b'data: {"usage": {"prompt_tokens": 12, "completion_tokens": 80, "total_tokens": 92}}',
+            b'data: [DONE]',
+        ])
+
+        from ollamachat.core.llama_client import LlamaClient
+
+        client = LlamaClient(session=mock_session)
+        on_token = Mock()
+        on_done = Mock()
+        on_error = Mock()
+        on_usage = Mock()
+
+        client.chat_stream([], {}, on_token, on_done, on_error, on_usage=on_usage)
+        time.sleep(0.1)
+
+        assert on_usage.call_count == 1
+        usage_arg = on_usage.call_args[0][0]
+        assert usage_arg["prompt_tokens"] == 12
+        assert usage_arg["completion_tokens"] == 80
+        assert usage_arg["total_tokens"] == 92
+        assert on_token.call_count == 2
+        assert on_done.call_count == 1
+        assert on_error.call_count == 0
+
+    def test_chat_stream_no_error_when_usage_absent(self, mock_session, mock_call_after):
+        """Given a stream with no usage key, no error and normal callbacks fire."""
+        self._stub_stream(mock_session, [
+            b'data: {"choices":[{"delta":{"content":"hello"}}]}',
+            b'data: [DONE]',
+        ])
+
+        from ollamachat.core.llama_client import LlamaClient
+
+        client = LlamaClient(session=mock_session)
+        on_token = Mock()
+        on_done = Mock()
+        on_error = Mock()
+
+        # No on_usage passed (default None) — should not error
+        client.chat_stream([], {}, on_token, on_done, on_error)
+        time.sleep(0.1)
+
+        assert on_token.call_count == 1
+        assert on_token.call_args[0][0] == "hello"
+        assert on_done.call_count == 1
+        assert on_error.call_count == 0
