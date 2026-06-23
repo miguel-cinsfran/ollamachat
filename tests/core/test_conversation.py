@@ -120,7 +120,9 @@ def test_save_to_disk(tmp_path):
 
     with open(filepath, encoding="utf-8") as f:
         data = json.load(f)
-    assert data == conv.to_dict()
+    # The JSON now has a top-level system_prompt field
+    assert data["system_prompt"] == ""
+    assert data["messages"] == conv.to_dict()["messages"]
 
     # Verify non-ASCII is not escaped
     content = filepath.read_text(encoding="utf-8")
@@ -138,7 +140,7 @@ def test_load_from_disk(tmp_path):
     filepath = tmp_path / "chat.json"
     Conversation.save(conv, filepath)
 
-    conv2 = Conversation.load(filepath)
+    conv2, _ = Conversation.load(filepath)
     assert len(conv2.messages) == 2
     assert conv2.messages[0]["content"] == "Hola"
     assert conv2.messages[0]["role"] == "user"
@@ -169,7 +171,7 @@ def test_atomic_write_uses_tmp(tmp_path):
     assert not filepath.with_suffix(".tmp").exists()
     assert filepath.exists()
     # Verify content
-    loaded = Conversation.load(filepath)
+    loaded, _ = Conversation.load(filepath)
     assert len(loaded.messages) == 1
 
 
@@ -213,3 +215,60 @@ def test_images_preserve_order():
     conv.add_message("user", "ver", images=["img1", "img2", "img3"])
     api_msgs = conv.get_messages_for_api()
     assert api_msgs[0]["images"] == ["img1", "img2", "img3"]
+
+
+# ─── system_prompt (v0.3.0) ─────────────────────────────────────────────────
+
+
+def test_save_includes_system_prompt(tmp_path):
+    """Given save with system_prompt, the JSON file includes the field."""
+    from ollamachat.core.conversation import Conversation
+
+    conv = Conversation()
+    conv.add_message("user", "Hola")
+
+    filepath = tmp_path / "chat.json"
+    Conversation.save(conv, filepath, system_prompt="Eres útil.")
+
+    with open(filepath, encoding="utf-8") as f:
+        parsed = json.load(f)
+    assert parsed["system_prompt"] == "Eres útil."
+    assert len(parsed["messages"]) == 1
+    assert parsed["messages"][0]["content"] == "Hola"
+
+
+def test_load_returns_system_prompt(tmp_path):
+    """Given a file with system_prompt, load returns tuple with it."""
+    from ollamachat.core.conversation import Conversation
+
+    filepath = tmp_path / "chat.json"
+    data = {
+        "system_prompt": "X",
+        "messages": [{"role": "user", "content": "hi", "timestamp": "now"}],
+    }
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+
+    result = Conversation.load(filepath)
+    assert isinstance(result, tuple)
+    assert len(result) == 2
+    conv, sp = result
+    assert sp == "X"
+    assert len(conv.messages) == 1
+    assert conv.messages[0]["content"] == "hi"
+
+
+def test_load_missing_system_prompt_returns_empty_string(tmp_path):
+    """Given a v0.2.0 file (no system_prompt), load returns empty string."""
+    from ollamachat.core.conversation import Conversation
+
+    filepath = tmp_path / "chat.json"
+    data = {
+        "messages": [{"role": "user", "content": "hi", "timestamp": "now"}],
+    }
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+
+    conv, sp = Conversation.load(filepath)
+    assert sp == ""
+    assert len(conv.messages) == 1

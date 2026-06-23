@@ -204,6 +204,14 @@ class MainWindow(wx.Frame):
         self.status_bar.SetStatusText("", 1)
         self.status_bar.SetStatusText("", 2)
 
+    def _sync_button_state(self, server_running: bool) -> None:
+        """Sync start/stop button enable state with server running state."""
+        self.start_server_button.Enable()
+        if server_running:
+            self.stop_server_button.Enable()
+        else:
+            self.stop_server_button.Disable()
+
     # ── Startup ────────────────────────────────────────────────────────────
 
     def _startup_check(self) -> None:
@@ -241,6 +249,7 @@ class MainWindow(wx.Frame):
         self._speech.speak(
             f"Conectado. Modelo cargado: {loaded}.", interrupt=True
         )
+        self._sync_button_state(True)
         self._scan_models()
 
     def _scan_models(self) -> None:
@@ -296,15 +305,11 @@ class MainWindow(wx.Frame):
             self.status_bar.SetStatusText("Servidor listo", 0)
             if "corriendo" not in message:
                 self._scan_models()
-            self.stop_server_button.Enable()
         else:
             self.status_bar.SetStatusText("Error al iniciar", 0)
-            # C1: keep the stop button disabled if start failed — there
-            # is nothing to stop.
-            self.stop_server_button.Disable()
 
         self._speech.speak(message, interrupt=True)
-        self.start_server_button.Enable()
+        self._sync_button_state(ok)
 
     def _on_stop_server(self) -> None:
         """Stop the running llama-server."""
@@ -318,8 +323,7 @@ class MainWindow(wx.Frame):
 
         self.status_bar.SetStatusText("Servidor detenido", 0)
         self._speech.speak("Servidor detenido", interrupt=True)
-        self.stop_server_button.Disable()
-        self.start_server_button.Enable()
+        self._sync_button_state(False)
 
     def _on_browse_model(self) -> None:
         """Open file dialog to pick a .gguf file and set it as the model."""
@@ -467,6 +471,8 @@ class MainWindow(wx.Frame):
                 "assistant", self._current_response
             )
 
+        # Separate assistant response from the next user message visually.
+        self.chat_panel.append_assistant_chunk("\n")
         self.chat_panel.end_generation()
         self.status_bar.SetStatusText("", 2)
         self._current_response = ""
@@ -560,13 +566,14 @@ class MainWindow(wx.Frame):
     # ── Window Close ──────────────────────────────────────────────────────────
 
     def _on_close(self, event: wx.CloseEvent) -> None:
-        """Handle window close: stop llama-server before exiting.
+        """Handle window close: abort any active stream, then stop llama-server.
 
-        This is a blocking call (5s max for graceful shutdown) but the
-        app is closing so no UI responsiveness is needed.
+        Aborting first prevents wx.CallAfter callbacks from firing into
+        destroyed controls after Destroy() runs.
         """
         log = get_logger()
-        log.info("Window closing, stopping llama-server")
+        log.info("Window closing, aborting stream and stopping llama-server")
+        self._client.abort()
         stop_server()
         event.Skip()
 

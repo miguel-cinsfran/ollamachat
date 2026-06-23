@@ -97,33 +97,41 @@ class Conversation:
         return conv
 
     @classmethod
-    def save(cls, conv: "Conversation", filepath: Path) -> None:
+    def save(
+        cls, conv: "Conversation", filepath: Path, system_prompt: str = ""
+    ) -> None:
         """Save a conversation to disk with atomic write.
 
         Writes to a .tmp file first, then replaces the target atomically.
+        The system_prompt is stored at the top level alongside messages.
 
         Args:
             conv: The conversation to save.
             filepath: Path to the output JSON file.
+            system_prompt: Optional system prompt text to persist.
         """
+        data = conv.to_dict()
+        full = {"system_prompt": system_prompt, **data}
         tmp_path = filepath.with_suffix(".tmp")
         with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(conv.to_dict(), f, indent=2, ensure_ascii=False)
+            json.dump(full, f, indent=2, ensure_ascii=False)
         tmp_path.replace(filepath)
 
     @classmethod
-    def load(cls, filepath: Path) -> "Conversation":
+    def load(cls, filepath: Path) -> tuple["Conversation", str]:
         """Load a conversation from disk.
 
         Args:
             filepath: Path to an existing JSON file.
 
         Returns:
-            A new Conversation populated from the file.
+            Tuple of (Conversation, system_prompt_string).
 
         Raises:
             FileNotFoundError: If the file does not exist.
         """
         with open(filepath, "r", encoding="utf-8") as f:
             data = json.load(f)
-        return cls.from_dict(data)
+        sp: str = data.get("system_prompt", "")
+        body = {"messages": data.get("messages", [])}
+        return cls.from_dict(body), sp
