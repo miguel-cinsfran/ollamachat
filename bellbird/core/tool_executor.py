@@ -64,6 +64,7 @@ class ToolExecutor:
             subprocess.run(
                 [shell, "-Command", "exit 0"],
                 capture_output=True, timeout=5,
+                creationflags=0x08000000,
             )
         except (FileNotFoundError, subprocess.TimeoutExpired):
             shell = "powershell.exe"

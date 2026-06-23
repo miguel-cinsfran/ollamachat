@@ -84,6 +84,37 @@ class TestToolExecutor:
         assert result.stdout == "a" * 4000
         assert result.stderr == "e" * 4000
 
+    def test_pwsh_probe_has_creationflags_on_win32(self):
+        """Given win32, the PROBE subprocess call also uses CREATE_NO_WINDOW (BUG 3).
+
+        The first subprocess.run call (the pwsh.exe probe) must have
+        creationflags=0x08000000 to prevent a console window flash on the
+        first tool invocation. The existing test checks only the last call.
+        """
+        CREATE_NO_WINDOW = 0x08000000
+
+        def run_side_effect(*args, **kwargs):
+            mock_r = Mock()
+            mock_r.stdout = "output"
+            mock_r.stderr = ""
+            mock_r.returncode = 0
+            return mock_r
+
+        with patch("sys.platform", "win32"), patch(
+            "bellbird.core.tool_executor.subprocess.run",
+            side_effect=run_side_effect,
+        ) as mock_run:
+            executor = ToolExecutor()
+            executor.run("shell_execute", "Get-Process")
+
+        assert mock_run.call_count >= 2
+        probe_call = mock_run.call_args_list[0]
+        kwargs = probe_call[1] if probe_call[1] else {}
+        assert kwargs.get("creationflags") == CREATE_NO_WINDOW, (
+            "CREATE_NO_WINDOW flag must be set on the PROBE subprocess call "
+            "to prevent console flash on Windows (BUG 3)"
+        )
+
     def test_create_no_window_flag_set_on_win32(self):
         """Given win32, the actual command subprocess call uses CREATE_NO_WINDOW.
 
