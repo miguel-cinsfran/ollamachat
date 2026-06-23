@@ -4,7 +4,7 @@ Cliente de escritorio accesible para chatear con modelos locales .gguf via llama
 Diseñado para usuarios ciegos en Windows 11 con NVDA o JAWS.
 
 Stack: Python 3.12, wxPython 4.2+, accessible-output2 0.17+, requests 2.31+.
-Tests: pytest (140/140 en v0.3.0).
+Tests: pytest (180/180 en v0.4.0).
 
 ## Reglas criticas (no negociables)
 
@@ -96,13 +96,12 @@ Estructura `ollamachat/{core,ui,data}/` (no cambiarla). Sin `ruff`/`mypy` (pytes
 
 ## Estado actual
 
-- Version: 0.3.0 (140/140 tests, listo para tag).
+- Version: 0.4.0 (180/180 tests, tool calling UI layer done).
 - Backend: llama-server (llama.cpp) via API OpenAI-compatible.
-- Pendiente: verificación manual en Windows (4 tareas `[windows-only]`: NVDA Tab order chat panel, F2 announcement, Alt+N shortcuts, popup Tab order).
-
-## Proximos cambios
-
-- v0.4.0: Tool calling (PROMPT_TOOL_CALLING.txt) — PermissionManager, PermissionDialog, ToolExecutor (PowerShell), shell_execute tool.
+- Tool calling: PermissionManager, PermissionDialog (wx.Dialog nativo),
+  ToolExecutor (PowerShell con fallback pwsh→powershell), SHELL_TOOL_DEFINITION.
+- Pendiente: verificación manual en Windows (4 tareas `[windows-only]`:
+  NVDA Tab order chat panel, F2 announcement, Alt+N shortcuts, popup Tab order).
 
 ## Entorno
 

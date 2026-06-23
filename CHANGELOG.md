@@ -2,6 +2,15 @@
 
 Todas las versiones notables del proyecto OllamaChat.
 
+## [0.4.0] - 2026-06-23
+
+### Agregado
+- Tool calling con sistema de permisos accesible
+- PermissionManager, PermissionDialog (wx.Dialog nativo)
+- ToolExecutor (PowerShell con fallback pwsh→powershell)
+- Checkbox "Permitir herramientas" en params_panel
+- Auto-bloqueo solo para paths de sistema, no directorios del usuario
+
 ## [0.3.0] - 2026-06-23
 
 ### Agregado
