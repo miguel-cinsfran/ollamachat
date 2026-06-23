@@ -30,4 +30,8 @@ echo  Resultado copiado al portapapeles. Pega con Ctrl+V.
 echo ============================================================
 echo.
 del "%TMPFILE%"
+echo.
+echo Para smoke test con UI completo (necesita pywinauto):
+echo   uv run python smoke_test.py
+echo.
 pause
