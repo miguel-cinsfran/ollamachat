@@ -45,7 +45,8 @@ class TestLlamaRunner:
 
         from bellbird.core.llama_runner import find_gguf_models
 
-        result = find_gguf_models(extra_paths=[str(tmp_path)])
+        with patch("bellbird.core.llama_runner._is_windows", return_value=False):
+            result = find_gguf_models(extra_paths=[str(tmp_path)])
         assert result == []
 
     def test_find_gguf_models_filters_extensions(self, tmp_path):
