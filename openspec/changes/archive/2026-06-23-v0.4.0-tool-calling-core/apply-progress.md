@@ -1,5 +1,7 @@
 # Apply Progress: v0.4.0-tool-calling-core
 
+> **Note**: This file was moved from `openspec/changes/v0.4.0-tool-calling-core/` to `openspec/changes/archive/2026-06-23-v0.4.0-tool-calling-core/` as part of the archive process. Contents are unchanged.
+
 ## Execution Summary
 
 - **Status:** DONE — all 8 tasks completed

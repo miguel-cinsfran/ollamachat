@@ -53,7 +53,7 @@ announcement on startup; failure must be silent so the app keeps booting.
 - THEN it returns `""` and does not raise
 
 ### REQ-LLAMA-003: Stream chat completions
-**Statement**: `LlamaClient.chat_stream(messages, options, on_token, on_done, on_error, on_usage: Callable[[dict], None] | None = None)`
+**Statement**: `LlamaClient.chat_stream(messages, options, on_token, on_done, on_error, on_usage: Callable[[dict], None] | None = None, on_tool_call: Callable[[str, str, dict], None] | None = None, tools: list[dict] | None = None)`
 MUST spawn a daemon `threading.Thread` and POST `{base_url}/v1/chat/completions`
 with a JSON body that contains `messages`, `stream: true`, `model: "local"`,
 and the sampling parameters at the **root** of the body (NOT nested in an
@@ -67,6 +67,9 @@ silently. The worker MUST handle SSE lines that span multiple `recv()` calls
 by buffering until a newline is seen.
 
 Inside `_stream_worker`, when an SSE chunk's decoded JSON contains an `"usage"` key, the worker MUST call `wx.CallAfter(on_usage, chunk["usage"])` IF `on_usage is not None`. The absence of a `"usage"` key in any chunk MUST be silent (no error, no callback). The original `on_token` / `on_done` / `on_error` contract, the daemon thread, the SSE parser, the abort event, and the body shape are unchanged.
+
+When `on_tool_call is None` and `tools is None`, behavior is identical to v0.3.0: no `tools` or `tool_choice` keys in the body, no `tool_calls` buffering, no `on_tool_call` dispatch. SSE parser, abort event, threading contract, and the four existing callbacks are unchanged. The full contract for the new parameters is in the three ADDED Requirements below.
+
 **Rationale**: Token-by-token streaming is required for responsive speech
 synthesis; SSE is the only transport the OpenAI-compatible endpoint exposes.
 The optional `on_usage` callback allows the UI to capture and display token-usage statistics reported by `llama-server` in the final SSE chunk.
@@ -119,6 +122,92 @@ inside the worker function only) — this mirrors the existing
 - WHEN the stream yields a usage chunk
 - THEN no `TypeError` is raised
 - AND the stream completes normally
+
+- GIVEN `chat_stream(messages, options, on_token, on_done, on_error)` is called WITHOUT `on_tool_call` or `tools`
+- AND a stream whose final chunk has a `"usage"` key
+- WHEN the stream completes
+- THEN no `TypeError` is raised
+- AND the request body does NOT contain a `tools` or `tool_choice` key
+- AND `on_usage` is invoked exactly once via `wx.CallAfter` (v0.3.0 behavior preserved)
+
+### REQ-LLAMA-017: chat_stream accepts an on_tool_call callback
+
+`chat_stream` SHALL accept an optional `on_tool_call: Callable[[str, str, dict], None] | None = None` parameter. When the SSE stream reaches a chunk whose `choices[0].finish_reason == "tool_calls"` AND `on_tool_call is not None`, the worker MUST invoke `wx.CallAfter(on_tool_call, tool_name, tool_call_id, arguments_dict)` once per accumulated tool_call, then clear the buffer.
+
+Callback signature: `(tool_name: str, tool_call_id: str, arguments: dict)`. Dispatch uses `wx.CallAfter` (not a direct call) so the callback runs on the wx main thread, mirroring the `on_token` / `on_usage` contract.
+
+#### Scenario: callback fires with parsed args on finish_reason=tool_calls
+
+- **GIVEN** a stubbed stream whose final chunk is `{"choices": [{"finish_reason": "tool_calls", "delta": {"tool_calls": [{"index": 0, "id": "call_abc", "function": {"name": "shell_execute", "arguments": "{\"command\":\"ls\"}"}}]}}]}`
+- **AND** `on_tool_call` is a fake recording function
+- **WHEN** `chat_stream(..., on_tool_call=on_tool_call)` is called
+- **THEN** `on_tool_call` is invoked exactly once
+- **AND** the recorded call shape is `wx.CallAfter(on_tool_call, "shell_execute", "call_abc", {"command": "ls"})`
+
+#### Scenario: no callback when finish_reason is never tool_calls
+
+- **GIVEN** a stream whose chunks all have `finish_reason` of `None` or `"stop"`
+- **AND** `on_tool_call` is a fake recording function
+- **WHEN** `chat_stream(..., on_tool_call=on_tool_call)` is called
+- **THEN** `on_tool_call` is never invoked
+
+#### Scenario: callback is NOT invoked when on_tool_call is None
+
+- **GIVEN** a stream with `finish_reason == "tool_calls"`
+- **AND** `on_tool_call` is `None`
+- **WHEN** `chat_stream(...)` is called
+- **THEN** no `AttributeError` is raised
+- **AND** the stream completes normally
+
+### REQ-LLAMA-018: chat_stream accepts a tools catalog
+
+`chat_stream` SHALL accept an optional `tools: list[dict] | None = None` parameter. When `tools is not None`, the worker MUST add `body["tools"] = tools` and `body["tool_choice"] = "auto"` to the outgoing JSON body. When `tools is None`, neither key appears (preserving v0.3.0 behavior).
+
+`tools` list items are OpenAI-style tool definitions; the worker MUST forward them verbatim without validation.
+
+#### Scenario: body contains tools when provided
+
+- **GIVEN** `chat_stream(..., tools=[{"type": "function", "function": {"name": "shell_execute"}}])` is called
+- **WHEN** `requests.post` is invoked
+- **THEN** the JSON body has `body["tools"] == [{"type": "function", "function": {"name": "shell_execute"}}]`
+- **AND** the JSON body has `body["tool_choice"] == "auto"`
+
+#### Scenario: body has no tools key when None
+
+- **GIVEN** `chat_stream(...)` is called with `tools=None`
+- **WHEN** `requests.post` is invoked
+- **THEN** the JSON body does NOT contain a `"tools"` key
+- **AND** the JSON body does NOT contain a `"tool_choice"` key
+
+### REQ-LLAMA-019: chat_stream accumulates tool_call fragments by index
+
+`chat_stream` MUST accumulate `delta.tool_calls` fragments across SSE chunks. The worker maintains a per-stream buffer `dict[int, dict]` keyed by `delta.tool_calls[].index`. For each fragment in `delta.tool_calls`:
+
+| Field | Behavior |
+|---|---|
+| `id` | Stamped onto the entry once (subsequent overwrites ignored). |
+| `function.name` | Stamped onto the entry once (subsequent overwrites ignored). |
+| `function.arguments` | Concatenated as a string (this is what llama-server splits across chunks). |
+
+When a chunk's `finish_reason == "tool_calls"`, the worker MUST, for each entry: `args = json.loads(entry["arguments"])`, with a `json.JSONDecodeError` fallback of `{"raw": entry["arguments"]}`. The buffer MUST be cleared before the next stream starts.
+
+#### Scenario: arguments split across three chunks reassemble into one dict
+
+- **GIVEN** three SSE chunks arriving in order:
+  - chunk 1: `{"choices": [{"delta": {"tool_calls": [{"index": 0, "id": "call_x", "function": {"name": "shell_execute", "arguments": "{"}}]}}]}`
+  - chunk 2: `{"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"arguments": "\"command\": \"ls\""}}]}}]}`
+  - chunk 3: `{"choices": [{"finish_reason": "tool_calls", "delta": {"tool_calls": [{"index": 0, "function": {"arguments": "}"}}]}}]}`
+- **AND** `on_tool_call` is a fake recording function
+- **WHEN** `chat_stream(..., on_tool_call=on_tool_call)` is called
+- **THEN** `on_tool_call` is invoked exactly once
+- **AND** the third argument is the dict `{"command": "ls"}` (reassembled, not a string)
+
+#### Scenario: malformed JSON falls back to {"raw": ...}
+
+- **GIVEN** a stream with a single tool_call whose accumulated `arguments` is `"not json {"` (invalid JSON)
+- **WHEN** `finish_reason == "tool_calls"` is reached
+- **THEN** the callback's third argument is `{"raw": "not json {"}`
+- **AND** no `JSONDecodeError` propagates to the caller
 
 ### REQ-LLAMA-004: Abort an in-flight stream
 **Statement**: `LlamaClient.abort()` MUST set an internal `threading.Event`
