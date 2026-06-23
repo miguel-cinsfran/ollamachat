@@ -4,7 +4,7 @@ Cliente de escritorio accesible para chatear con modelos locales .gguf via llama
 Diseñado para usuarios ciegos en Windows 11 con NVDA o JAWS.
 
 Stack: Python 3.12, wxPython 4.2+, accessible-output2 0.17+, requests 2.31+.
-Tests: pytest (180/180 en v0.4.0).
+Tests: pytest (186/186 en v0.4.0).
 
 ## Reglas criticas (no negociables)
 
@@ -94,9 +94,28 @@ Estructura `ollamachat/{core,ui,data}/` (no cambiarla). Sin `ruff`/`mypy` (pytes
 - Tool calling usará `wx.Dialog` + `wx.Button` nativos (no `MessageDialog`).
 - Cada control wx: `name=` + StaticText previo + solo BoxSizer.
 
+## Lecciones aprendidas (v0.4.0)
+
+### Process
+- **Verify post-apply sigue siendo crítico.** El verify v1 del v0.4.0-ui detectó CRITICAL-1: `tool_call_id` se perdía en `Conversation.add_message` (la spec y el apply sub-agent codificaron el bug como expected behavior). Regla reforzada: sub-agente de verify, no spot check.
+- **El spec también es código.** Cuando la spec prescribe un bug, la implementación fiel reproduce el bug. Verify lee la spec Y el código; corrige la spec cuando prescribe algo incorrecto. El fix post-verify toca `core/conversation.py` aunque el change sea "UI only" — el bug lo justifica.
+- **Post-verify fixes pequeños y bien definidos: inline OK.** Cuando verify encuentra bugs acotados (5 archivos, ~130 líneas) con root cause claro, el orquestador puede hacer el fix inline. El sub-agent de verify ya ejerció el juicio independiente. Documentar en el chat qué se fixed y por qué.
+
+### Sub-agents — DELEGATE BY DEFAULT
+- **Default: delegar. Inline: excepción con justificación.** v0.4.0-ui orquestador escribió proposal/specs/design/tasks inline porque el usuario dio la spec "completa". Error: perdí el paralelismo specs+design (única oportunidad real del grafo SDD), inflé mi contexto con 4 artefactos grandes (45k chars), no aproveché la especialización de modelo.
+- **Cuándo SÍ escribir inline:** solo cuando un sub-agent ya colgó o devolvió output inutilizable, Y está documentado en el chat o en `apply-progress.md`. La "Táctica: si un sub-agent cuelga" de v0.3.0 era para FALLOS, no para atajos preventivos. Se aplicó mal.
+- **Aprovechar paralelismo del grafo SDD.** Después de `proposal`, `specs` y `design` son paralelizables (ambos leen solo proposal; design no depende de specs). Lanzar en paralelo cuando aplique. Inline secuencial pierde esta ventaja.
+- **Model assignments importan.** La tabla de model assignments asigna `deepseek-v4-flash` a design (architectural decisions) y tasks (mechanical breakdown), distinto del orquestador (`minimax-m3`). Delegar es también delegar el "tipo de pensamiento" al modelo más apto, no solo descargar trabajo.
+- **El usuario dando la spec "completa" no es razón para saltarse sub-agents.** Estructurar la spec en proposal + escenarios GIVEN-WHEN-THEN + diagramas de secuencia + Review Workload Forecast es trabajo de phase, no de coordinación. El sub-agent de la phase está calibrado para eso.
+
+### Code patterns (v0.4.0)
+- `Conversation.add_message` con `tool_call_id` opcional (solo persiste cuando `role == "tool"`); `get_messages_for_api` lo propaga. Round-trip de tool calling depende de esto.
+- `MainWindow._on_tool_result` pasa `tool_call_id=tool_call_id` a `add_message`. Sin esto, el segundo turno del tool-calling cycle se rompe (OpenAI-compatible API requiere `tool_call_id` en tool messages).
+- AST tests cubren existencia y estructura, no comportamiento de runtime. Bugs de round-trip (como CRITICAL-1) requieren tests de `core/` que verifiquen el payload que sale por `get_messages_for_api`. Complementar AST con al menos un test runtime por cada capability que toca I/O o estado compartido.
+
 ## Estado actual
 
-- Version: 0.4.0 (180/180 tests, tool calling UI layer done).
+- Version: 0.4.0 (186/186 tests, tool calling UI layer done).
 - Backend: llama-server (llama.cpp) via API OpenAI-compatible.
 - Tool calling: PermissionManager, PermissionDialog (wx.Dialog nativo),
   ToolExecutor (PowerShell con fallback pwsh→powershell), SHELL_TOOL_DEFINITION.
@@ -114,3 +133,4 @@ Estructura `ollamachat/{core,ui,data}/` (no cambiarla). Sin `ruff`/`mypy` (pytes
 - Archivados: `openspec/changes/archive/<fecha>-<name>/`.
 - Specs main: `openspec/specs/<capability>/spec.md`.
 - Para arrancar: `sdd-new-gentleman` o delegar a `sdd-propose-gentleman` con el contexto.
+- Grafo SDD: `proposal → (specs || design) → tasks → apply → verify → archive`. Después de proposal, specs y design se pueden delegar **en paralelo** (ambos leen solo proposal; design no depende de specs). No perder esa oportunidad.
