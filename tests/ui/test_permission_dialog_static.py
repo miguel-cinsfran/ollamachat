@@ -208,6 +208,35 @@ def test_no_emoji_in_risk_labels():
         assert v.isascii(), f"risk_label value contains non-ASCII: {v!r}"
 
 
+def test_all_statictext_labels_are_ascii():
+    """All wx.StaticText label= arguments in permission_dialog.py are pure ASCII.
+
+    NVDA reads non-ASCII characters (including emojis) letter-by-letter or by
+    their Unicode description. Any non-ASCII character in a StaticText would
+    produce unexpected announcements for blind users.
+    """
+    source_path = _get_ui_path("permission_dialog.py")
+    source = source_path.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    non_ascii: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func_name = _get_func_name(node)
+        if func_name not in ("wx.StaticText", "StaticText"):
+            continue
+        for kw in node.keywords:
+            if kw.arg == "label" and isinstance(kw.value, ast.Constant):
+                label = kw.value.value
+                if isinstance(label, str) and not label.isascii():
+                    non_ascii.append(label)
+
+    assert non_ascii == [], (
+        f"Non-ASCII StaticText labels found in permission_dialog.py: {non_ascii}"
+    )
+
+
 def _get_func_name(node: ast.Call) -> str:
     """Extract the full function name from a Call node."""
     if isinstance(node.func, ast.Attribute):

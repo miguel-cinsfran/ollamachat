@@ -30,6 +30,13 @@ class TestPermissionManager:
         result = pm.classify_risk("Remove-Item C:\\Temp\\junk.txt")
         assert result == RiskLevel.RED
 
+    def test_classify_risk_case_insensitive(self):
+        """Given uppercase commands, classify_risk still classifies correctly."""
+        pm = PermissionManager()
+        assert pm.classify_risk("REMOVE-ITEM C:\\Temp\\junk.txt") == RiskLevel.RED
+        assert pm.classify_risk("MOVE-ITEM a.txt b.txt") == RiskLevel.YELLOW
+        assert pm.classify_risk("GET-PROCESS") == RiskLevel.GREEN
+
     # ── is_system_destructive ────────────────────────────────────────────
 
     def test_is_system_destructive_windows_dir(self):

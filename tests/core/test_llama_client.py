@@ -491,3 +491,52 @@ class TestLlamaClient:
         assert args == {"command": "ls"}
         assert on_done.call_count == 1
         assert on_error.call_count == 0
+
+    def test_chat_stream_malformed_json_falls_back_to_raw(self, mock_session, mock_call_after):
+        """Given tool_call with malformed JSON arguments, on_tool_call receives
+        {"raw": <accumulated_string>} instead of a parsed dict."""
+        self._stub_stream(mock_session, [
+            b'data: {"choices":[{"finish_reason":"tool_calls","delta":{"tool_calls":[{"index":0,"id":"call_bad","function":{"name":"shell_execute","arguments":"not valid json {"}}]}}]}',
+            b'data: [DONE]',
+        ])
+
+        from ollamachat.core.llama_client import LlamaClient
+
+        client = LlamaClient(session=mock_session)
+        on_tool_call = Mock()
+        on_done = Mock()
+        on_error = Mock()
+
+        client.chat_stream([], {}, Mock(), on_done, on_error,
+                           on_tool_call=on_tool_call)
+        time.sleep(0.1)
+
+        assert on_tool_call.call_count == 1
+        name, call_id, args = on_tool_call.call_args[0]
+        assert name == "shell_execute"
+        assert call_id == "call_bad"
+        assert "raw" in args
+        assert args["raw"] == "not valid json {"
+        assert on_error.call_count == 0
+
+    def test_chat_stream_no_tool_call_when_finish_reason_stop(self, mock_session, mock_call_after):
+        """Given finish_reason=stop and a non-None on_tool_call, the callback
+        is NOT invoked — only tool_calls finish_reason triggers it."""
+        self._stub_stream(mock_session, [
+            b'data: {"choices":[{"delta":{"content":"Sure!"}}]}',
+            b'data: {"choices":[{"finish_reason":"stop","delta":{}}]}',
+            b'data: [DONE]',
+        ])
+
+        from ollamachat.core.llama_client import LlamaClient
+
+        client = LlamaClient(session=mock_session)
+        on_tool_call = Mock()
+        on_done = Mock()
+
+        client.chat_stream([], {}, Mock(), on_done, Mock(),
+                           on_tool_call=on_tool_call)
+        time.sleep(0.1)
+
+        assert on_tool_call.call_count == 0
+        assert on_done.call_count == 1
