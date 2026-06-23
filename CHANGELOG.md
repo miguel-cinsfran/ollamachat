@@ -2,6 +2,26 @@
 
 Todas las versiones notables del proyecto OllamaChat.
 
+## [Pendiente] — Roadmap
+
+### v0.4.1 (bug conocido)
+- Agregar mensaje assistant con `tool_calls[]` a la conversación antes del segundo turno.
+  Sin él, llama-server puede rechazar el request según el Jinja template del modelo.
+
+### v0.5.0 (features)
+- **Context overflow**: warning cuando la conversación se acerca al context window;
+  opción de truncar mensajes antiguos automáticamente.
+- **Regenerar respuesta**: botón para descartar el último mensaje del asistente y
+  re-enviar el último mensaje del usuario.
+- **Export texto plano**: guardar conversación como .txt además de .json.
+- **Borrar último mensaje con teclado**: atajo desde el ListBox sin menú contextual.
+- **Refactor**: fusionar `send_message` y `_continue_after_tool` en helper común
+  (SUGGESTION-1 del verify v0.4.0-ui).
+
+### Verificación pendiente (toda la UI)
+- Primera prueba real con NVDA en Windows 11 — ninguna versión ha sido probada en vivo.
+  Empezar por: F2, PermissionDialog, ListBox navigation, Save/Load, Tool calling.
+
 ## [0.4.0] - 2026-06-23
 
 ### Agregado
