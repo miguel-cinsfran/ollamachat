@@ -528,6 +528,32 @@ def _get_attr_name(node: ast.AST) -> str:
     return "<unknown>"
 
 
+# ─── v0.4.1 keyboard navigation improvements ────────────────────────────
+
+
+def test_delete_key_handled_in_list():
+    """WXK_DELETE appears in _on_list_key body (Supr key handler)."""
+    source_path = _get_ui_path("chat_panel.py")
+    source = source_path.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    method = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "_on_list_key":
+            method = node
+            break
+
+    assert method is not None, "_on_list_key method not found"
+    source_lines = source.splitlines()
+    start = method.lineno - 1
+    end = method.end_lineno
+    method_source = "\n".join(source_lines[start:end])
+
+    assert "WXK_DELETE" in method_source, (
+        "WXK_DELETE must appear in _on_list_key body"
+    )
+
+
 def _extract_ast_value(node: ast.AST) -> str | None:
     """Extract a string representation from an AST node."""
     if isinstance(node, ast.Constant):

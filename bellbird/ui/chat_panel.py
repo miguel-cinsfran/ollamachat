@@ -361,6 +361,11 @@ class ChatPanel(wx.Panel):
             self._on_message_dclick()
             return
 
+        # Delete (Supr) → remove the selected history row.
+        if key == wx.WXK_DELETE and not event.ControlDown():
+            self._on_context_delete()
+            return
+
         # Printable character (no Ctrl/Alt/Meta)
         # Use GetUnicodeKey() instead of GetKeyCode() so non-ASCII chars
         # (ñ, á, é, í, ó, ú, ¿, ¡, etc.) route to the input correctly.
