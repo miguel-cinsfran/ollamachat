@@ -195,15 +195,33 @@ class MainWindow(wx.Frame):
 
     def _build_accelerators(self) -> None:
         """Build accelerator table for keyboard shortcuts."""
+        # Define custom IDs for new accelerators
+        self.ID_FOCUS_INPUT = wx.NewIdRef()
+        self.ID_FOCUS_LIST = wx.NewIdRef()
+        self.ID_FOCUS_MODEL = wx.NewIdRef()
+        self.ID_FOCUS_TEMP = wx.NewIdRef()
+        self.ID_FOCUS_SYSPROMPT = wx.NewIdRef()
+        self.ID_FOCUS_USE = wx.NewIdRef()
+        self.ID_F2 = wx.NewIdRef()
+        self.ID_F6 = wx.NewIdRef()
+
         accel_entries = [
             wx.AcceleratorEntry(wx.ACCEL_CTRL, ord("N"), wx.ID_NEW),
             wx.AcceleratorEntry(wx.ACCEL_CTRL, ord("O"), wx.ID_OPEN),
             wx.AcceleratorEntry(wx.ACCEL_CTRL, ord("S"), wx.ID_SAVE),
             wx.AcceleratorEntry(wx.ACCEL_NORMAL, wx.WXK_F5, wx.ID_REFRESH),
             wx.AcceleratorEntry(wx.ACCEL_NORMAL, wx.WXK_ESCAPE, wx.ID_STOP),
+            wx.AcceleratorEntry(wx.ACCEL_ALT, ord("1"), self.ID_FOCUS_INPUT),
+            wx.AcceleratorEntry(wx.ACCEL_ALT, ord("2"), self.ID_FOCUS_LIST),
+            wx.AcceleratorEntry(wx.ACCEL_ALT, ord("3"), self.ID_FOCUS_MODEL),
+            wx.AcceleratorEntry(wx.ACCEL_ALT, ord("4"), self.ID_FOCUS_TEMP),
+            wx.AcceleratorEntry(wx.ACCEL_ALT, ord("5"), self.ID_FOCUS_SYSPROMPT),
+            wx.AcceleratorEntry(wx.ACCEL_ALT, ord("6"), self.ID_FOCUS_USE),
+            wx.AcceleratorEntry(wx.ACCEL_NORMAL, wx.WXK_F2, self.ID_F2),
+            wx.AcceleratorEntry(wx.ACCEL_NORMAL, wx.WXK_F6, self.ID_F6),
         ]
 
-        # Bind accelerators
+        # Bind standard accelerators
         self.Bind(
             wx.EVT_MENU,
             lambda evt: self._scan_models(),
@@ -215,8 +233,81 @@ class MainWindow(wx.Frame):
             id=wx.ID_STOP,
         )
 
+        # Bind new focus accelerators
+        self.Bind(
+            wx.EVT_MENU,
+            lambda evt: self.chat_panel.message_input.SetFocus(),
+            id=self.ID_FOCUS_INPUT,
+        )
+        self.Bind(
+            wx.EVT_MENU,
+            lambda evt: self._on_focus_list(),
+            id=self.ID_FOCUS_LIST,
+        )
+        self.Bind(
+            wx.EVT_MENU,
+            lambda evt: self.params_panel.model_selector.SetFocus(),
+            id=self.ID_FOCUS_MODEL,
+        )
+        self.Bind(
+            wx.EVT_MENU,
+            lambda evt: self.params_panel.temperature_slider.SetFocus(),
+            id=self.ID_FOCUS_TEMP,
+        )
+        self.Bind(
+            wx.EVT_MENU,
+            lambda evt: self.params_panel.system_prompt.SetFocus(),
+            id=self.ID_FOCUS_SYSPROMPT,
+        )
+        self.Bind(
+            wx.EVT_MENU,
+            lambda evt: self._on_focus_use(),
+            id=self.ID_FOCUS_USE,
+        )
+        self.Bind(
+            wx.EVT_MENU,
+            lambda evt: self._announce_session_status(),
+            id=self.ID_F2,
+        )
+        self.Bind(
+            wx.EVT_MENU,
+            lambda evt: self._on_f6_cycle(),
+            id=self.ID_F6,
+        )
+
         accel_table = wx.AcceleratorTable(accel_entries)
         self.SetAcceleratorTable(accel_table)
+
+    def _on_focus_list(self) -> None:
+        """Focus the message list and announce the last item."""
+        lst = self.chat_panel.message_list
+        count = lst.GetCount()
+        if count > 0:
+            lst.SetSelection(count - 1)
+        self._speech.speak(f"Historial, {count} mensajes", interrupt=True)
+        lst.SetFocus()
+
+    def _on_focus_use(self) -> None:
+        """Focus the use_model_button, falling back to restart_server_button."""
+        if self.params_panel.use_model_button.IsEnabled():
+            self.params_panel.use_model_button.SetFocus()
+        else:
+            self.restart_server_button.SetFocus()
+
+    def _on_f6_cycle(self) -> None:
+        """Cycle focus through main panels: params, list, input."""
+        targets = [
+            self.params_panel.model_selector,
+            self.chat_panel.message_list,
+            self.chat_panel.message_input,
+        ]
+        self._focus_cycle_index = (self._focus_cycle_index + 1) % len(targets)
+        target = targets[self._focus_cycle_index]
+        wx.CallAfter(target.SetFocus)
+        self._speech.speak(
+            f"Panel {self._focus_cycle_index + 1} de {len(targets)}",
+            interrupt=True,
+        )
 
     def _create_status_bar(self) -> None:
         """Create status bar with 3 fields."""
@@ -707,7 +798,10 @@ class MainWindow(wx.Frame):
         )
         if dialog.ShowModal() == wx.ID_OK:
             filepath = dialog.GetPath()
-            Conversation.save(self._conversation, filepath)
+            Conversation.save(
+                self._conversation, filepath,
+                system_prompt=self.params_panel.get_system_prompt(),
+            )
             self._speech.speak("Conversación guardada", interrupt=True)
         dialog.Destroy()
 
@@ -724,16 +818,11 @@ class MainWindow(wx.Frame):
         if dialog.ShowModal() == wx.ID_OK:
             filepath = dialog.GetPath()
             try:
-                self._conversation = Conversation.load(filepath)
-                # Rebuild display
-                self.chat_panel.clear()
-                for msg in self._conversation.messages:
-                    if msg["role"] == "user":
-                        self.chat_panel.append_user_message(msg["content"])
-                    elif msg["role"] == "assistant":
-                        self.chat_panel.append_assistant_chunk(
-                            f"[Asistente] {msg['content']}\n"
-                        )
+                self._conversation, system_prompt = Conversation.load(filepath)
+                self.params_panel.set_system_prompt(system_prompt)
+                self.chat_panel.set_history(
+                    [(m["role"], m["content"]) for m in self._conversation.messages]
+                )
                 self._speech.speak("Conversación cargada", interrupt=True)
             except Exception as e:
                 error_msg = f"No se pudo cargar la conversación: {e}"
