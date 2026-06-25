@@ -1,10 +1,14 @@
 """Configuration persistence — wx-free, strict TDD."""
 
 import json
+import shutil
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 
-CONFIG_PATH = Path(__file__).parent.parent / "data" / "config.json"
+from bellbird.core.paths import user_data_dir
+
+CONFIG_PATH = user_data_dir() / "config.json"
+LEGACY_CONFIG_PATH = Path(__file__).parent.parent / "data" / "config.json"
 
 
 @dataclass
@@ -34,11 +38,28 @@ _MIGRATIONS: dict[str, object] = {
 }
 
 
+def migrate_legacy_config() -> None:
+    """One-shot, best-effort migration of config from the package data dir
+    to the new user-data dir. Idempotent: if the new file already exists,
+    this is a no-op. Never raises.
+    """
+    if not LEGACY_CONFIG_PATH.is_file():
+        return
+    if CONFIG_PATH.is_file():
+        return
+    try:
+        CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(LEGACY_CONFIG_PATH, CONFIG_PATH)
+    except Exception:
+        pass
+
+
 def load_config() -> BellbirdConfig:
     """Load config from CONFIG_PATH. Returns BellbirdConfig() on missing/
     corrupt file. Unknown JSON keys filtered by __dataclass_fields__.
     Applies one-time migrations for fields whose old default is known.
     """
+    migrate_legacy_config()
     if not CONFIG_PATH.is_file():
         return BellbirdConfig()
     try:
