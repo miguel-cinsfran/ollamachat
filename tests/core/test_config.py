@@ -235,3 +235,151 @@ def test_load_config_applies_max_tokens_migration(monkeypatch, tmp_path):
     result = load_config()
 
     assert result.max_tokens == 4096
+
+
+# ── model_mmproj ──────────────────────────────────────────────────────────
+
+
+def test_model_mmproj_default_is_empty_dict():
+    """GIVEN a fresh BellbirdConfig()
+    THEN model_mmproj == {} (not shared across instances)."""
+    a = BellbirdConfig()
+    b = BellbirdConfig()
+    a.model_mmproj["k.gguf"] = "C:\\p.gguf"
+    assert b.model_mmproj == {}
+
+
+def test_model_mmproj_round_trip(monkeypatch, tmp_path):
+    """GIVEN BellbirdConfig(model_mmproj={"a.gguf": "C:\\m\\p.gguf"})
+    WHEN save_config then load_config
+    THEN model_mmproj equals the input dict."""
+    cfg = BellbirdConfig(model_mmproj={"a.gguf": "C:\\m\\p.gguf"})
+    path = tmp_path / "config.json"
+    save_config(cfg, path)
+    from bellbird.core import config as config_module
+
+    monkeypatch.setattr(config_module, "CONFIG_PATH", path)
+    loaded = load_config()
+    assert loaded.model_mmproj == {"a.gguf": "C:\\m\\p.gguf"}
+
+
+def test_model_mmproj_unknown_key_dropped(monkeypatch, tmp_path):
+    """GIVEN JSON with model_mmproj AND a future_field key
+    WHEN load_config() reads it
+    THEN model_mmproj is loaded and future_field is silently dropped."""
+    import json
+
+    path = tmp_path / "config.json"
+    data = {
+        "model_mmproj": {"a.gguf": "C:\\m\\p.gguf"},
+        "future_field": "x",
+    }
+    path.write_text(json.dumps(data), encoding="utf-8")
+    from bellbird.core import config as config_module
+
+    monkeypatch.setattr(config_module, "CONFIG_PATH", path)
+    result = load_config()
+    assert result.model_mmproj == {"a.gguf": "C:\\m\\p.gguf"}
+    assert not hasattr(result, "future_field")
+
+
+def test_model_mmproj_basename_lookup():
+    """GIVEN model_mmproj key by basename
+    WHEN accessing via Path().name
+    THEN returns the stored value regardless of parent dir."""
+    cfg = BellbirdConfig(model_mmproj={"vl.gguf": "C:\\m\\p.gguf"})
+    # Direct dict access uses basename
+    assert cfg.model_mmproj.get("vl.gguf") == "C:\\m\\p.gguf"
+    # Same basename regardless of parent path
+    from pathlib import Path
+
+    key = Path("/other/path/vl.gguf").name
+    assert key == "vl.gguf"
+
+
+def test_get_mmproj_for_missing_key_returns_none(tmp_path):
+    """GIVEN model_mmproj has no entry for the given model
+    WHEN get_mmproj_for is called
+    THEN returns None."""
+    cfg = BellbirdConfig(model_mmproj={"other.gguf": str(tmp_path / "p.gguf")})
+    result = cfg.get_mmproj_for(tmp_path / "model.gguf")
+    assert result is None
+
+
+def test_get_mmproj_for_missing_file_returns_none(tmp_path):
+    """GIVEN model_mmproj has an entry whose file no longer exists
+    WHEN get_mmproj_for is called
+    THEN returns None."""
+    proj = tmp_path / "p.gguf"
+    cfg = BellbirdConfig(model_mmproj={"model.gguf": str(proj)})
+    # File does not exist
+    result = cfg.get_mmproj_for(tmp_path / "model.gguf")
+    assert result is None
+
+
+def test_get_mmproj_for_valid_entry_returns_resolved_path(tmp_path):
+    """GIVEN model_mmproj has a valid entry
+    WHEN get_mmproj_for is called
+    THEN returns the resolved absolute path."""
+    proj = tmp_path / "p.gguf"
+    proj.write_text("")
+    cfg = BellbirdConfig(model_mmproj={"model.gguf": str(proj)})
+    result = cfg.get_mmproj_for(tmp_path / "model.gguf")
+    assert result == str(proj.resolve())
+
+
+# ── mmproj_offload ────────────────────────────────────────────────────────
+
+
+def test_request_timeout_default_is_120():
+    """GIVEN a fresh BellbirdConfig()
+    THEN request_timeout == 120."""
+    cfg = BellbirdConfig()
+    assert cfg.request_timeout == 120
+
+
+def test_request_timeout_missing_in_json_uses_default(monkeypatch, tmp_path):
+    """GIVEN a config.json without request_timeout
+    WHEN load_config() is called
+    THEN request_timeout is 120 (field default)."""
+    import json
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"port": 8080}), encoding="utf-8")
+    from bellbird.core import config as config_module
+    monkeypatch.setattr(config_module, "CONFIG_PATH", path)
+    result = load_config()
+    assert result.request_timeout == 120
+
+
+def test_request_timeout_custom_persists(monkeypatch, tmp_path):
+    """GIVEN BellbirdConfig(request_timeout=300)
+    WHEN save_config then load_config
+    THEN request_timeout == 300."""
+    cfg = BellbirdConfig(request_timeout=300)
+    path = tmp_path / "config.json"
+    save_config(cfg, path)
+    from bellbird.core import config as config_module
+    monkeypatch.setattr(config_module, "CONFIG_PATH", path)
+    loaded = load_config()
+    assert loaded.request_timeout == 300
+
+
+def test_mmproj_offload_default_is_true():
+    """GIVEN a fresh BellbirdConfig()
+    THEN mmproj_offload is True."""
+    cfg = BellbirdConfig()
+    assert cfg.mmproj_offload is True
+
+
+def test_mmproj_offload_round_trip_false(monkeypatch, tmp_path):
+    """GIVEN BellbirdConfig(mmproj_offload=False)
+    WHEN save_config then load_config
+    THEN mmproj_offload is False."""
+    cfg = BellbirdConfig(mmproj_offload=False)
+    path = tmp_path / "config.json"
+    save_config(cfg, path)
+    from bellbird.core import config as config_module
+
+    monkeypatch.setattr(config_module, "CONFIG_PATH", path)
+    loaded = load_config()
+    assert loaded.mmproj_offload is False

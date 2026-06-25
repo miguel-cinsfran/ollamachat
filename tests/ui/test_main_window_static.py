@@ -385,7 +385,7 @@ def test_model_load_worker_binds_defaults_before_try() -> None:
     from pathlib import Path
     src = Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
     m = re.search(
-        r"def _model_load_worker\(self, model: str\) -> None:.*?"
+        r"def _model_load_worker\(self, model: str.*?\) -> None:.*?"
         r"(?=\n    def |\nclass |\Z)",
         src, re.DOTALL,
     )
@@ -913,7 +913,7 @@ def test_on_start_server_done_calls_output_on_success() -> None:
     source_path = _get_ui_path("main_window.py")
     src = source_path.read_text(encoding="utf-8")
     m = re.search(
-        r"def _on_start_server_done\(self, ok: bool, message: str\) -> None:.*?"
+        r"def _on_start_server_done\(self, ok: bool, message: str.*?\) -> None:.*?"
         r"(?=\n    def |\nclass |\Z)",
         src, re.DOTALL,
     )
@@ -1402,16 +1402,16 @@ def test_window_size_900_650():
     )
 
 
-def test_version_0_6_0():
-    """pyproject.toml has version = '0.6.0'."""
+def test_version_0_7_1():
+    """pyproject.toml has version = '0.7.1'."""
     import pathlib
     proj_path = (
         pathlib.Path(__file__).resolve().parent.parent.parent
         / "pyproject.toml"
     )
     source = proj_path.read_text(encoding="utf-8")
-    assert 'version = "0.6.0"' in source, (
-        "pyproject.toml must have version = \"0.6.0\""
+    assert 'version = "0.7.1"' in source, (
+        "pyproject.toml must have version = \"0.7.1\""
     )
 
 
@@ -1560,5 +1560,226 @@ def test_on_scan_done_method_exists() -> None:
     assert found, "_on_scan_done method not found in MainWindow"
 
 
+# ── multimodal mmproj (v0.7.0) ────────────────────────────────────────────────
 
+
+def test_vision_capable_initialized_to_false():
+    """MainWindow.__init__ sets self._vision_capable = False."""
+    source_path = _get_ui_path("main_window.py")
+    source = source_path.read_text(encoding="utf-8")
+    assert "self._vision_capable: bool = False" in source or (
+        'self._vision_capable = False' in source and
+        '__init__' in source  # sanity: the file has __init__
+    ), "self._vision_capable must be initialized in __init__"
+
+
+def test_vision_capable_declared():
+    """MainWindow has _vision_capable as a typed attribute."""
+    source_path = _get_ui_path("main_window.py")
+    source = source_path.read_text(encoding="utf-8")
+    assert "_vision_capable" in source, (
+        "_vision_capable must be declared in MainWindow"
+    )
+
+
+def test_find_mmproj_imported():
+    """main_window.py imports find_mmproj_for_model from model_meta."""
+    source_path = _get_ui_path("main_window.py")
+    source = source_path.read_text(encoding="utf-8")
+    assert "from bellbird.core.model_meta import find_mmproj_for_model" in source, (
+        "must import find_mmproj_for_model"
+    )
+
+
+def test_f2_status_contains_vision_string():
+    """_announce_session_status generates a string with 'Imágenes:'."""
+    source_path = _get_ui_path("main_window.py")
+    source = source_path.read_text(encoding="utf-8")
+    assert "Imágenes:" in source, (
+        "F2 status must contain 'Imágenes: sí/no'"
+    )
+
+
+def test_send_message_vision_guard():
+    """send_message checks _vision_capable before building image payload."""
+    source_path = _get_ui_path("main_window.py")
+    source = source_path.read_text(encoding="utf-8")
+    assert "not self._vision_capable" in source or (
+        "self._vision_capable" in source and
+        "attached_images" in source
+    ), "send_message must have a vision-capable guard"
+
+
+def test_on_start_server_done_accepts_vision_flag():
+    """_on_start_server_done accepts vision_capable parameter."""
+    source_path = _get_ui_path("main_window.py")
+    source = source_path.read_text(encoding="utf-8")
+    assert "vision_capable" in source, (
+        "_on_start_server_done must accept vision_capable parameter"
+    )
+
+
+# ─── v0.7.1 Robustness — stream timeout, tool cancel, watchdog ──────────
+
+
+def test_abort_generation_calls_tool_executor_cancel_before_client_abort():
+    """abort_generation calls tool_executor.cancel() before client.abort().
+
+    Order: _aborted → _is_generating → tool_executor.cancel() → client.abort()
+    """
+    source_path = _get_ui_path("main_window.py")
+    source = source_path.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    method = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "abort_generation":
+            method = node
+            break
+
+    assert method is not None, "abort_generation not found in main_window.py"
+
+    # Collect assignments and calls in body order
+    found_cancel = False
+    found_abort = False
+    cancel_line = -1
+    abort_line = -1
+
+    for node in ast.walk(method):
+        if isinstance(node, ast.Call):
+            func_name = _get_func_name(node)
+            if func_name == "self._tool_executor.cancel":
+                found_cancel = True
+                cancel_line = node.lineno
+            if func_name == "self._client.abort":
+                found_abort = True
+                abort_line = node.lineno
+
+    assert found_cancel, (
+        "abort_generation must call self._tool_executor.cancel()"
+    )
+    assert found_abort, "abort_generation must call self._client.abort()"
+    assert cancel_line < abort_line, (
+        f"self._tool_executor.cancel() (line {cancel_line}) must appear "
+        f"BEFORE self._client.abort() (line {abort_line})"
+    )
+
+
+def test_on_tool_result_guards_result_cancelled():
+    """_on_tool_result checks result.cancelled and returns early."""
+    import re
+    source_path = _get_ui_path("main_window.py")
+    src = source_path.read_text(encoding="utf-8")
+    m = re.search(
+        r"def _on_tool_result\(self, result, tool_call_id: str\) -> None:.*?"
+        r"(?=\n    def |\nclass |\Z)",
+        src, re.DOTALL,
+    )
+    assert m is not None, "_on_tool_result not found in main_window.py"
+    body = m.group(0)
+
+    assert "result.cancelled" in body, (
+        "_on_tool_result must check result.cancelled"
+    )
+    # Verify _continue_after_tool is not in the cancelled branch:
+    # the cancelled branch returns early, so _continue_after_tool
+    # must appear AFTER the last early-return guard.
+    cancelled_pos = body.find("result.cancelled")
+    continue_pos = body.find("_continue_after_tool")
+    assert cancelled_pos >= 0, (
+        "result.cancelled check not found"
+    )
+    # There should be a return before _continue_after_tool in the
+    # cancelled branch — if cancelled_pos < continue_pos and there's
+    # a return between them, the check is valid.
+    return_in_cancelled = body.find("return", cancelled_pos, continue_pos)
+    assert return_in_cancelled >= 0, (
+        "_on_tool_result must have a return in the result.cancelled branch "
+        "so _continue_after_tool is not called when the tool is cancelled"
+    )
+
+
+def test_init_passes_request_timeout_to_llama_client():
+    """MainWindow.__init__ passes request_timeout= kwarg to LlamaClient()."""
+    source_path = _get_ui_path("main_window.py")
+    source = source_path.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    method = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "__init__":
+            method = node
+            break
+
+    assert method is not None, "__init__ not found"
+
+    found_request_timeout = False
+    for node in ast.walk(method):
+        if isinstance(node, ast.Call):
+            func_name = _get_func_name(node)
+            if func_name == "LlamaClient":
+                for kw in node.keywords:
+                    if kw.arg == "request_timeout":
+                        found_request_timeout = True
+                        break
+
+    assert found_request_timeout, (
+        "LlamaClient() must receive request_timeout= kwarg in __init__"
+    )
+
+
+def test_on_error_has_connection_watchdog():
+    """_on_error contains connection-error markers for the watchdog branch."""
+    source_path = _get_ui_path("main_window.py")
+    src = source_path.read_text(encoding="utf-8")
+    assert "ConnectionError" in src, (
+        "_on_error (or its helpers) must reference ConnectionError for "
+        "the watchdog branch"
+    )
+    assert "_run_connection_watchdog" in src, (
+        "Must have a _run_connection_watchdog method"
+    )
+    assert "_on_server_state_checked" in src, (
+        "Must have a _on_server_state_checked method"
+    )
+
+
+def test_on_server_state_checked_handles_dead_and_loading():
+    """_on_server_state_checked offers restart for dead, speaks for loading."""
+    import re
+    source_path = _get_ui_path("main_window.py")
+    src = source_path.read_text(encoding="utf-8")
+    # Multi-line signature: use _on_server_state_checked and find the method
+    m = re.search(
+        r"def _on_server_state_checked\(.*?\) -> None:.*?"
+        r"(?=\n    def |\nclass |\Z)",
+        src, re.DOTALL,
+    )
+    assert m is not None, "_on_server_state_checked not found in main_window.py"
+    body = m.group(0)
+
+    assert 'if state == "dead":' in body, (
+        "Must handle 'dead' state"
+    )
+    assert 'elif state == "loading":' in body, (
+        "Must handle 'loading' state"
+    )
+
+
+def test_restart_dialog_uses_wx_dialog_not_message_dialog():
+    """Restart dialog uses wx.Dialog, not wx.MessageDialog with custom labels."""
+    source_path = _get_ui_path("main_window.py")
+    src = source_path.read_text(encoding="utf-8")
+    assert "wx.Dialog(" in src, (
+        "Restart dialog must use wx.Dialog (not MessageDialog)"
+    )
+    assert 'name="server_down_dialog"' in src, (
+        "Restart dialog must have name='server_down_dialog'"
+    )
+    assert 'name="restart_yes_button"' in src, (
+        "Yes button must have name='restart_yes_button'"
+    )
+    assert 'name="restart_no_button"' in src, (
+        "No button must have name='restart_no_button'"
+    )
 

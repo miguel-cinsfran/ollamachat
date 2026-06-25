@@ -31,8 +31,10 @@ class LlamaClient:
         self,
         base_url: str = "http://localhost:8080",
         session: requests.Session | None = None,
+        request_timeout: int = 120,
     ) -> None:
         self.base_url = base_url
+        self.request_timeout = request_timeout
         self._session = session or requests.Session()
         self._stop_event = threading.Event()
         self._stream_thread: threading.Thread | None = None
@@ -223,7 +225,7 @@ class LlamaClient:
                 f"{self.base_url}/v1/chat/completions",
                 json=body,
                 stream=True,
-                timeout=60,
+                timeout=self.request_timeout,
             ) as response:
                 log.info("stream_worker: HTTP %d %s", response.status_code, response.reason or "")
                 if response.status_code != 200:

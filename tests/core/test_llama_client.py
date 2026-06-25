@@ -11,6 +11,80 @@ import pytest
 import requests
 
 
+# ─── request_timeout (v0.7.1) ────────────────────────────────────────────────
+
+
+class TestLlamaClientRequestTimeout:
+    """Tests for configurable request_timeout."""
+
+    def test_default_request_timeout_is_120(self):
+        """GIVEN LlamaClient() without request_timeout
+        THEN request_timeout == 120."""
+        from bellbird.core.llama_client import LlamaClient
+
+        client = LlamaClient(session=Mock(spec=requests.Session))
+        assert client.request_timeout == 120
+
+    def test_custom_request_timeout_is_stored(self):
+        """GIVEN LlamaClient(request_timeout=300)
+        THEN request_timeout == 300."""
+        from bellbird.core.llama_client import LlamaClient
+
+        client = LlamaClient(
+            session=Mock(spec=requests.Session),
+            request_timeout=300,
+        )
+        assert client.request_timeout == 300
+
+    def test_request_timeout_reaches_session_post(self, mock_session, mock_call_after):
+        """GIVEN LlamaClient(request_timeout=300)
+        WHEN chat_stream is called
+        THEN session.post is called with timeout=300."""
+        mock_response = MagicMock()
+        mock_response.iter_lines.return_value = [
+            b'data: {"choices":[{"delta":{"content":"ok"}}]}',
+            b'data: [DONE]',
+        ]
+        mock_response.status_code = 200
+        mock_response.reason = "OK"
+        ctx = MagicMock()
+        ctx.__enter__.return_value = mock_response
+        ctx.__exit__.return_value = False
+        mock_session.post.return_value = ctx
+
+        from bellbird.core.llama_client import LlamaClient
+
+        client = LlamaClient(session=mock_session, request_timeout=300)
+        client.chat_stream([], {}, Mock(), Mock(), Mock())
+        time.sleep(0.1)
+
+        _, kwargs = mock_session.post.call_args
+        assert kwargs.get("timeout") == 300
+
+    def test_health_check_timeout_unchanged(self, mock_session):
+        """GIVEN LlamaClient(request_timeout=300)
+        WHEN check_running() / check_state() is called
+        THEN the GET is called with timeout=5 (unchanged)."""
+        from bellbird.core.llama_client import LlamaClient
+
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"status": "ok"}
+        mock_session.get.return_value = mock_response
+
+        client = LlamaClient(session=mock_session, request_timeout=300)
+        client.check_running()
+        client.check_state()
+
+        assert mock_session.get.call_count == 2
+        for call_args in mock_session.get.call_args_list:
+            _, kwargs = call_args
+            assert kwargs.get("timeout") == 5, (
+                "Health-check timeout must remain 5s, not be affected by "
+                "request_timeout"
+            )
+
+
 # ─── Wx module stub ──────────────────────────────────────────────────────────
 
 

@@ -28,6 +28,21 @@ class BellbirdConfig:
     port: int = 8080
     confirm_new_conversation: bool = True
     tools_enabled: bool = False
+    model_mmproj: dict[str, str] = field(default_factory=dict)
+    mmproj_offload: bool = True
+    request_timeout: int = 120
+
+    def get_mmproj_for(self, model_path: str | Path) -> str | None:
+        """Look up the mmproj path for a model by basename.
+
+        Returns the resolved absolute path if the stored file exists,
+        or ``None`` if the key is missing or the file no longer exists.
+        """
+        key = Path(model_path).name
+        val = self.model_mmproj.get(key)
+        if val and Path(val).is_file():
+            return str(Path(val).resolve())
+        return None
 
 
 _MIGRATIONS: dict[str, object] = {

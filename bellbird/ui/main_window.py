@@ -33,6 +33,7 @@ from bellbird.core.logger import get_logger, get_log_path
 from bellbird.core.speech import Speech
 from bellbird.ui.chat_panel import ChatPanel
 from bellbird.core.config import load_config
+from bellbird.core.model_meta import find_mmproj_for_model
 from bellbird.core.permission_manager import PermissionManager
 from bellbird.core.tool_executor import ToolExecutor, ToolResult
 from bellbird.ui.permission_dialog import PermissionDialog
@@ -76,7 +77,10 @@ class MainWindow(wx.Frame):
         super().__init__(parent, title=title, size=(900, 650))
         self._config = load_config()
         self._client = LlamaClient(
-            base_url=f"http://localhost:{self._config.port}"
+            base_url=f"http://localhost:{self._config.port}",
+            request_timeout=getattr(
+                self._config, "request_timeout", 120
+            ),
         )
         self._conversation = Conversation()
         self._speech = Speech()
@@ -93,6 +97,7 @@ class MainWindow(wx.Frame):
         self._loading_timer: threading.Timer | None = None
         self._model_load_thread: threading.Thread | None = None
         self._basename_to_path: dict[str, str] = {}
+        self._vision_capable: bool = False
 
         # Must be defined before _build_menu() which uses them for Append() IDs.
         self.ID_START_SERVER = wx.NewIdRef()
@@ -526,6 +531,36 @@ class MainWindow(wx.Frame):
             self._speech.speak("Archivo de modelo no encontrado", interrupt=True)
             return
         basename = Path(model).name
+
+        # Resolve mmproj: config → auto-detect → FileDialog
+        mmproj_path: str | None = self._config.get_mmproj_for(model)
+        if mmproj_path is None:
+            auto = find_mmproj_for_model(Path(model))
+            if auto is not None:
+                mmproj_path = str(auto)
+            else:
+                # Show FileDialog on the main thread
+                model_dir = str(Path(model).parent) if Path(model).parent.exists() else ""
+                dlg = wx.FileDialog(
+                    self,
+                    message="Seleccione el archivo mmproj",
+                    defaultDir=model_dir,
+                    defaultFile="",
+                    wildcard="*.gguf",
+                    style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST,
+                )
+                if dlg.ShowModal() == wx.ID_OK:
+                    mmproj_path = dlg.GetPath()
+                dlg.Destroy()
+
+        # Persist manual selection
+        if mmproj_path is not None:
+            self._config.model_mmproj[basename] = str(Path(mmproj_path).resolve())
+            try:
+                save_config(self._config)
+            except OSError:
+                pass  # best-effort persistence
+
         self.use_model_button.Disable()
         self.restart_server_button.Disable()
         self._speech.speak(
@@ -535,12 +570,12 @@ class MainWindow(wx.Frame):
         self._loading_timer = self._make_announce_timer()
         self._model_load_thread = threading.Thread(
             target=self._model_load_worker,
-            args=(model,),
+            args=(model, mmproj_path),
             daemon=True,
         )
         self._model_load_thread.start()
 
-    def _model_load_worker(self, model: str) -> None:
+    def _model_load_worker(self, model: str, mmproj_path: str | None = None) -> None:
         """Background thread worker for starting the server.
 
         `ok` and `message` are bound to safe defaults BEFORE the try so
@@ -558,13 +593,15 @@ class MainWindow(wx.Frame):
                 port=self._config.port,
                 ctx_size=self._config.ctx_size,
                 n_gpu_layers=self._config.n_gpu_layers,
+                mmproj=mmproj_path,
             )
         except Exception as e:
             message = f"Error: {type(e).__name__}: {e}"
         finally:
             if self._loading_timer is not None:
                 self._loading_timer.cancel()
-            wx.CallAfter(self._on_start_server_done, ok, message)
+            vision_flag = ok and (mmproj_path is not None)
+            wx.CallAfter(self._on_start_server_done, ok, message, vision_flag)
 
     def _make_announce_timer(self) -> threading.Timer:
         """Create a chained timer that announces loading progress.
@@ -587,8 +624,9 @@ class MainWindow(wx.Frame):
         t.start()
         return t
 
-    def _on_start_server_done(self, ok: bool, message: str) -> None:
+    def _on_start_server_done(self, ok: bool, message: str, vision_capable: bool = False) -> None:
         """Handle the result of background server start."""
+        self._vision_capable = vision_capable
         if self._loading_timer is not None:
             self._loading_timer.cancel()
             self._loading_timer = None
@@ -806,6 +844,7 @@ class MainWindow(wx.Frame):
         log = get_logger()
         log.info("Stop server button clicked")
 
+        self._vision_capable = False
         self.status_bar.SetStatusText("Deteniendo servidor...", 0)
         self._speech.speak("Deteniendo servidor...", interrupt=True)
 
@@ -843,10 +882,12 @@ class MainWindow(wx.Frame):
         topp_str = f"{topp:.2f}".replace(".", ",")
 
         gen_str = "Generando: Sí" if self._is_generating else "Generando: No"
+        vision_str = "Imágenes: sí" if self._vision_capable else "Imágenes: no"
 
         text = (
             f"Modelo {model_str}. {server_str}. {msg_str}. {tokens_str}. "
-            f"Temperatura {temp_str}. Top-p {topp_str}. {gen_str}."
+            f"Temperatura {temp_str}. Top-p {topp_str}. {gen_str}. "
+            f"{vision_str}."
         )
         self._speech.speak(text, interrupt=True)
 
@@ -926,6 +967,18 @@ class MainWindow(wx.Frame):
         # C3: allow empty text if there are images attached
         if not user_text.strip() and not attached_images:
             return
+
+        # REQ-MULTI-003: drop images when model is not vision-capable
+        if attached_images and not self._vision_capable:
+            try:
+                self._speech.speak(
+                    "Aviso: el modelo actual no procesa imágenes. "
+                    "Adjunto enviado sin imagen.",
+                    interrupt=True,
+                )
+            except Exception:
+                pass  # Speech failures must never crash the send path
+            attached_images = []
 
         # Build API messages
         api_messages = []
@@ -1142,6 +1195,18 @@ class MainWindow(wx.Frame):
 
     def _on_tool_result(self, result, tool_call_id: str) -> None:
         """Callback en hilo principal con el resultado de la herramienta."""
+        log = get_logger()
+        if self._aborted:
+            log.info("tool cancelled by user abort")
+            self.chat_panel.append_tool_output(result.to_display_text())
+            return
+        if result.cancelled:
+            log.info("tool cancelled by user abort")
+            self.chat_panel.append_tool_output(result.to_display_text())
+            self._speech.speak(
+                "Generación detenida", interrupt=True
+            )
+            return
         self.chat_panel.append_tool_output(result.to_display_text())
         self._speech.speak(
             f"Comando completado, codigo {result.returncode}. Consultando al modelo.",
@@ -1220,6 +1285,19 @@ class MainWindow(wx.Frame):
         self.chat_panel.end_generation()
         self._is_generating = False
         self.status_bar.SetStatusText("Error", 2)
+
+        # Watchdog: connection-class errors → check server state in background
+        connection_markers = (
+            "ConnectionError",
+            "ConnectionRefusedError",
+            "ReadTimeout",
+            "ChunkedEncodingError",
+        )
+        if any(marker in error_text for marker in connection_markers):
+            self._run_connection_watchdog(error_text)
+            return
+
+        # Existing error path for non-connection errors
         wx.MessageDialog(
             self,
             message=error_text,
@@ -1227,6 +1305,113 @@ class MainWindow(wx.Frame):
             style=wx.OK | wx.ICON_ERROR,
         ).ShowModal()
         self._speech.speak(error_text, interrupt=True)
+
+    def _run_connection_watchdog(self, error_text: str) -> None:
+        """Check server state on a daemon thread for connection errors.
+
+        Spawns a daemon thread that calls ``check_state()`` and posts the
+        result back via ``wx.CallAfter``. Never blocks the main thread.
+        """
+        def watchdog_worker() -> None:
+            try:
+                state = self._client.check_state()
+            except Exception:
+                state = "dead"
+            wx.CallAfter(self._on_server_state_checked, state, error_text)
+
+        t = threading.Thread(target=watchdog_worker, daemon=True)
+        t.start()
+
+    def _on_server_state_checked(
+        self, state: str, error_text: str = ""
+    ) -> None:
+        """Handle the result of a connection watchdog server-state check.
+
+        Args:
+            state: One of ``"dead"``, ``"loading"``, or ``"ready"``.
+            error_text: The original error text from the stream (for logging).
+        """
+        log = get_logger()
+        log.info(
+            "_on_server_state_checked: state=%r error=%r",
+            state, error_text[:80] if error_text else "",
+        )
+
+        if state == "dead":
+            self._speech.speak(
+                "El servidor se detuvo. ¿Reiniciar?", interrupt=True
+            )
+            self._show_restart_dialog()
+        elif state == "loading":
+            self._speech.speak(
+                "Cargando modelo, por favor espera…", interrupt=True
+            )
+        else:
+            # "ready" — transient error, show existing error dialog
+            wx.MessageDialog(
+                self,
+                message=error_text,
+                caption="Error",
+                style=wx.OK | wx.ICON_ERROR,
+            ).ShowModal()
+            self._speech.speak(error_text, interrupt=True)
+
+    def _show_restart_dialog(self) -> None:
+        """Show a native wx.Dialog offering to restart the server.
+
+        Uses only ``wx.BoxSizer`` (H/V), no ``wx.MessageDialog`` with
+        custom Spanish labels (MSAA regression per AGENTS.md). Focus is
+        set on the "Sí" button after ``Fit()``.
+        """
+        dlg = wx.Dialog(
+            self,
+            name="server_down_dialog",
+            title="Servidor no disponible",
+        )
+        label = wx.StaticText(
+            dlg, label="El servidor se detuvo. ¿Reiniciar?"
+        )
+        yes_btn = wx.Button(
+            dlg, label="Sí, reiniciar", name="restart_yes_button"
+        )
+        no_btn = wx.Button(
+            dlg, label="No, salir", name="restart_no_button"
+        )
+
+        btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        btn_sizer.Add(yes_btn, flag=wx.RIGHT, border=8)
+        btn_sizer.Add(no_btn)
+
+        root_sizer = wx.BoxSizer(wx.VERTICAL)
+        root_sizer.Add(
+            label, flag=wx.ALL | wx.ALIGN_CENTER, border=16
+        )
+        root_sizer.Add(
+            btn_sizer, flag=wx.ALIGN_CENTER | wx.BOTTOM, border=8
+        )
+        dlg.SetSizer(root_sizer)
+
+        dlg.Fit()
+        yes_btn.SetFocus()
+
+        yes_btn.Bind(
+            wx.EVT_BUTTON, lambda evt: dlg.EndModal(wx.ID_YES)
+        )
+        no_btn.Bind(
+            wx.EVT_BUTTON, lambda evt: self._on_restart_no(dlg)
+        )
+
+        result = dlg.ShowModal()
+        if result == wx.ID_YES:
+            self._on_use_model()
+        dlg.Destroy()
+
+    def _on_restart_no(self, dlg: wx.Dialog) -> None:
+        """User clicked 'No, salir' — clean up generation state."""
+        self._is_generating = False
+        self._current_response = ""
+        self.status_bar.SetStatusText("Servidor detenido", 0)
+        dlg.EndModal(wx.ID_NO)
 
     # ── Abort ──────────────────────────────────────────────────────────────
 
@@ -1241,6 +1426,7 @@ class MainWindow(wx.Frame):
         """
         self._aborted = True
         self._is_generating = False
+        self._tool_executor.cancel()
         self._client.abort()
         self._speech.stop()
         self._speech.clear_buffer()
@@ -1358,6 +1544,7 @@ class MainWindow(wx.Frame):
             self._speech.stop()
             self._speech.clear_buffer()
             self._is_generating = False
+        self._vision_capable = False
         self._conversation.clear()
         self.chat_panel.clear()
         self._current_response = ""
