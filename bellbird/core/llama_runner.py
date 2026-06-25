@@ -24,6 +24,7 @@ import time
 from pathlib import Path
 
 from bellbird.core.llama_client import LlamaClient
+from bellbird.core.startup import parse_stderr_line
 
 
 # Module-level state for tracked server process.
@@ -173,9 +174,13 @@ def start_server(
     (1) Calls stop_server() unconditionally (idempotent).
     (2) Fast-path: if client.check_running() returns True, returns
         (True, "ya está corriendo") without spawning.
-    (3) Spawns subprocess.Popen with the documented argv.
-    (4) Polls client.check_running() every 0.2s for up to timeout seconds.
-    (5) Returns (True, "Servidor listo") on success or (False, reason)
+    (3) Spawns subprocess.Popen with the documented argv, capturing
+        stderr via PIPE instead of DEVNULL.
+    (4) Starts a daemon thread that reads stderr lines and classifies
+        them via ``core.startup.parse_stderr_line``. On FAIL the
+        process is terminated and the reason is returned early.
+    (5) Polls client.check_state() every 0.2s for up to timeout seconds.
+    (6) Returns (True, "Servidor listo") on success or (False, reason)
         on failure.
 
     Args:
@@ -210,10 +215,11 @@ def start_server(
             "--jinja",
         ]
 
-        # Step 4: Spawn
+        # Step 4: Spawn — capture stderr so we can detect known errors
+        # early instead of waiting the full polling timeout.
         kwargs: dict = {
             "stdout": subprocess.DEVNULL,
-            "stderr": subprocess.DEVNULL,
+            "stderr": subprocess.PIPE,
             "stdin": subprocess.DEVNULL,
         }
         if sys.platform == "win32":
@@ -239,6 +245,44 @@ def start_server(
                 "El servidor se cerró al iniciar (modelo inválido o puerto ocupado)",
             )
 
+        # Start the stderr reader daemon thread.
+        # It feeds each line through parse_stderr_line; on FAIL it
+        # records the reason and terminates the process so the poll
+        # loop below can return early.
+        _early_exit: list[tuple[bool, str]] = []
+        _ok_ready: list[bool] = []
+
+        def _stderr_reader(proc: subprocess.Popen) -> None:
+            """Daemon thread: read stderr lines and classify them."""
+            stderr = proc.stderr
+            if stderr is None:
+                return
+            try:
+                for raw_line in iter(stderr.readline, b""):
+                    if not raw_line:
+                        break
+                    try:
+                        text = raw_line.decode("utf-8", errors="replace")
+                    except AttributeError:
+                        continue
+                    line = text.rstrip("\n")
+                    verdict, reason = parse_stderr_line(line)
+                    if verdict == "FAIL":
+                        _early_exit.append((False, reason))
+                        proc.terminate()
+                        break
+                    elif verdict == "OK":
+                        _ok_ready.append(True)
+            except Exception:
+                pass
+
+        reader = threading.Thread(
+            target=_stderr_reader,
+            args=(_server_process,),
+            daemon=True,
+        )
+        reader.start()
+
     # Lock is now released. Poll the health endpoint without holding
     # the lock so a concurrent stop_server() can interrupt the wait by
     # terminating the process; the next check_running() call will then
@@ -246,7 +290,27 @@ def start_server(
     attempts = max(1, int(timeout / _POLL_INTERVAL_SECONDS))
     for _ in range(attempts):
         time.sleep(_POLL_INTERVAL_SECONDS)
-        if client.check_running():
+
+        # Early exit on stderr-detected failure
+        if _early_exit:
+            stop_server()
+            reader.join(timeout=1.0)
+            return _early_exit[0]
+
+        # Process exited on its own (crash / unknown error)
+        if _server_process.poll() is not None:
+            stop_server()
+            reader.join(timeout=1.0)
+            return False, "El servidor se cerró al iniciar"
+
+        # Success: stderr OK signal or health endpoint ready
+        if _ok_ready:
+            reader.join(timeout=1.0)
+            return True, "Servidor listo"
+
+        state = client.check_state()
+        if state == "ready":
+            reader.join(timeout=1.0)
             return True, "Servidor listo"
 
     return False, f"El servidor no responde dentro de {timeout}s"
