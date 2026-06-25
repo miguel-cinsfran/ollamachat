@@ -1350,16 +1350,16 @@ def test_window_size_900_650():
     )
 
 
-def test_version_0_5_3():
-    """pyproject.toml has version = '0.5.3'."""
+def test_version_0_6_0():
+    """pyproject.toml has version = '0.6.0'."""
     import pathlib
     proj_path = (
         pathlib.Path(__file__).resolve().parent.parent.parent
         / "pyproject.toml"
     )
     source = proj_path.read_text(encoding="utf-8")
-    assert 'version = "0.5.3"' in source, (
-        "pyproject.toml must have version = \"0.5.3\""
+    assert 'version = "0.6.0"' in source, (
+        "pyproject.toml must have version = \"0.6.0\""
     )
 
 
