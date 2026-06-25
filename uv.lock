@@ -40,7 +40,7 @@ wheels = [
 
 [[package]]
 name = "bellbird"
-version = "0.7.0"
+version = "0.7.3"
 source = { editable = "." }
 dependencies = [
     { name = "accessible-output2" },

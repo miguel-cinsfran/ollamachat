@@ -17,8 +17,6 @@ import wx
 
 from pathlib import Path
 
-import markdown
-
 from bellbird.core.conversation import Conversation
 from bellbird.core.llama_client import LlamaClient
 from bellbird.core.llama_runner import (
@@ -28,6 +26,7 @@ from bellbird.core.llama_runner import (
     start_server,
     stop_server,
 )
+from bellbird.core.html_render import render_message_html
 from bellbird.core.startup import probe as startup_probe
 from bellbird.core.logger import get_logger, get_log_path
 from bellbird.core.speech import Speech
@@ -1511,22 +1510,14 @@ class MainWindow(wx.Frame):
             reasoning: Optional reasoning/chain-of-thought text. When provided,
                 wrapped in a ``<details>`` element above the content.
         """
-        html = markdown.markdown(
-            text,
-            extensions=["fenced_code", "tables", "sane_lists", "nl2br"],
-        )
-        reasoning_html = ""
-        if reasoning:
-            escaped = reasoning.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            reasoning_html = (
-                "<details><summary>Razonamiento</summary>"
-                f"<pre><code>{escaped}</code></pre>"
-                "</details>"
-            )
-        full_html = (
-            "<!doctype html><html lang='es'><meta charset='utf-8'>"
-            f"<body>{reasoning_html}{html}</body></html>"
-        )
+        full_html = render_message_html(text, reasoning=reasoning)
+        # Optional: unlink the previous tempfile to avoid tempdir accumulation
+        if self._temp_html_files:
+            try:
+                os.unlink(self._temp_html_files[-1])
+            except OSError:
+                pass  # file already gone or locked; harmless
+            self._temp_html_files.pop()
         with tempfile.NamedTemporaryFile(
             suffix=".html", delete=False, mode="w", encoding="utf-8"
         ) as f:

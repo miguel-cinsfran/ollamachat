@@ -1436,16 +1436,16 @@ def test_window_size_900_650():
     )
 
 
-def test_version_0_7_3():
-    """pyproject.toml has version = '0.7.3'."""
+def test_version_0_7_4():
+    """pyproject.toml has version = '0.7.4'."""
     import pathlib
     proj_path = (
         pathlib.Path(__file__).resolve().parent.parent.parent
         / "pyproject.toml"
     )
     source = proj_path.read_text(encoding="utf-8")
-    assert 'version = "0.7.3"' in source, (
-        "pyproject.toml must have version = \"0.7.3\""
+    assert 'version = "0.7.4"' in source, (
+        "pyproject.toml must have version = \"0.7.4\""
     )
 
 
@@ -2042,53 +2042,112 @@ def test_focus_courtesy_only_when_user_still_on_placeholder() -> None:
     )
 
 
-# ─── v0.7.3 unified-chat-list: browser HTML invariants (D8 / Task 4.3) ──
+# ─── v0.7.3/0.7.4 browser HTML render: invariants moved to html_render.py ──
 
 
-def test_open_message_in_browser_uses_correct_markdown_extensions_and_html_lang() -> None:
-    """_open_message_in_browser uses markdown extensions, html lang='es', and details wrapper.
+def test_html_render_imports_in_main_window() -> None:
+    """main_window.py imports render_message_html from bellbird.core.html_render.
 
-    Pinned invariants from the spec and design:
-    - Markdown extensions: fenced_code, tables, sane_lists, nl2br
-    - HTML lang attribute set to Spanish ('es')
-    - <details><summary>Razonamiento</summary> wrapper when reasoning is present
+    The HTML generation logic moved to a wx-free helper module. The
+    markdown extensions, lang='es', and <details> wrappers are now
+    invariants of bellbird/core/html_render.py — not main_window.py.
     """
     from pathlib import Path
     src = Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
-
-    # Markdown extensions must appear in reasonable proximity to each other
-    # (they're all in the same markdown.markdown() call)
-    assert '"fenced_code"' in src or "'fenced_code'" in src, (
-        "Markdown extension 'fenced_code' not found in main_window.py"
+    assert "from bellbird.core.html_render import render_message_html" in src, (
+        "main_window.py must import render_message_html from bellbird.core.html_render"
     )
-    assert '"tables"' in src or "'tables'" in src, (
-        "Markdown extension 'tables' not found in main_window.py"
-    )
-    assert '"sane_lists"' in src or "'sane_lists'" in src, (
-        "Markdown extension 'sane_lists' not found in main_window.py"
-    )
-    assert '"nl2br"' in src or "'nl2br'" in src, (
-        "Markdown extension 'nl2br' not found in main_window.py"
+    assert "render_message_html(text, reasoning=reasoning)" in src, (
+        "_open_message_in_browser must call render_message_html"
     )
 
-    # <html lang='es'> — check both quoting variants
-    has_html_lang_es = (
-        "<html lang='es'>" in src
-        or '<html lang="es">' in src
-        or "lang='es'" in src
-        or 'lang="es"' in src
-    )
-    assert has_html_lang_es, (
-        "<html lang='es'> attribute not found in main_window.py"
+
+# ─── v0.7.4 thin-wrapper invariants (Task 3.1) ──────────────────────────────
+
+
+def test_open_message_in_browser_calls_render_message_html() -> None:
+    """_open_message_in_browser body contains a reference to render_message_html."""
+    import ast
+    from pathlib import Path
+    src = Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
+    tree = ast.parse(src)
+
+    method = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "_open_message_in_browser":
+            method = node
+            break
+    assert method is not None, "_open_message_in_browser method not found"
+
+    source_lines = src.splitlines()
+    start = method.lineno - 1
+    end = method.end_lineno
+    method_source = "\n".join(source_lines[start:end])
+    assert "render_message_html" in method_source
+
+
+def test_open_message_in_browser_calls_webbrowser_open() -> None:
+    """_open_message_in_browser body contains a call to webbrowser.open."""
+    import ast
+    from pathlib import Path
+    src = Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
+    tree = ast.parse(src)
+
+    method = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "_open_message_in_browser":
+            method = node
+            break
+    assert method is not None, "_open_message_in_browser method not found"
+
+    source_lines = src.splitlines()
+    start = method.lineno - 1
+    end = method.end_lineno
+    method_source = "\n".join(source_lines[start:end])
+    assert "webbrowser.open" in method_source or "webbrowser\\.open" in method_source
+
+
+def test_open_message_in_browser_does_not_call_markdown() -> None:
+    """_open_message_in_browser body does NOT contain markdown.markdown(."""
+    import ast
+    from pathlib import Path
+    src = Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
+    tree = ast.parse(src)
+
+    method = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "_open_message_in_browser":
+            method = node
+            break
+    assert method is not None, "_open_message_in_browser method not found"
+
+    source_lines = src.splitlines()
+    start = method.lineno - 1
+    end = method.end_lineno
+    method_source = "\n".join(source_lines[start:end])
+    assert "markdown.markdown(" not in method_source, (
+        "markdown.markdown() call found in _open_message_in_browser — "
+        "should be moved to the html_render helper"
     )
 
-    # <details> and <summary>Razonamiento</summary> wrapper
-    assert "<details>" in src or "<details>" in src, (
-        "<details> element not found in main_window.py — "
-        "the reasoning wrapper is missing"
-    )
-    assert "<summary>Razonamiento</summary>" in src, (
-        "<summary>Razonamiento</summary> not found in main_window.py — "
-        "the reasoning details header is missing"
-    )
+
+def test_open_message_in_browser_uses_named_temporary_file() -> None:
+    """_open_message_in_browser body contains NamedTemporaryFile."""
+    import ast
+    from pathlib import Path
+    src = Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
+    tree = ast.parse(src)
+
+    method = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "_open_message_in_browser":
+            method = node
+            break
+    assert method is not None, "_open_message_in_browser method not found"
+
+    source_lines = src.splitlines()
+    start = method.lineno - 1
+    end = method.end_lineno
+    method_source = "\n".join(source_lines[start:end])
+    assert "NamedTemporaryFile" in method_source
 
