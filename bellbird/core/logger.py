@@ -1,11 +1,9 @@
 """Simple file logger for Bellbird.
 
-Writes log entries to ``data/bellbird.log``. Never raises: logging
-failures are swallowed so a broken log file never crashes the app.
-
-The data/ folder is created next to the current working directory at
-first use, so installed applications log alongside their working
-directory and the project tree logs under its own data/ during dev.
+Writes log entries to ``bellbird.log`` inside the OS user-data
+directory (``platformdirs.user_data_dir("Bellbird", appauthor=False)``).
+Never raises: logging failures are swallowed so a broken log file
+never crashes the app.
 
 Usage:
 
@@ -19,9 +17,10 @@ Usage:
 import logging
 from pathlib import Path
 
+from bellbird.core.paths import user_data_dir
+
 
 _LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-_LOG_DIRNAME = "data"
 _LOG_FILENAME = "bellbird.log"
 _LOGGER_NAME = "bellbird"
 
@@ -34,7 +33,7 @@ def get_log_path() -> Path | None:
 
 
 def get_logger(name: str = _LOGGER_NAME) -> logging.Logger:
-    """Return a configured logger that writes to ``data/bellbird.log``.
+    """Return a configured logger that writes to the user-data directory.
 
     Idempotent: repeated calls with the same name return the same
     configured logger. If the log file cannot be opened, a
@@ -62,7 +61,7 @@ def get_logger(name: str = _LOGGER_NAME) -> logging.Logger:
     logger._bellbird_configured = True  # type: ignore[attr-defined]
 
     try:
-        log_dir = Path.cwd() / _LOG_DIRNAME
+        log_dir = user_data_dir()
         log_dir.mkdir(parents=True, exist_ok=True)
         log_path = log_dir / _LOG_FILENAME
         _log_path = log_path
