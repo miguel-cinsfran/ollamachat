@@ -44,7 +44,7 @@
 ### Commit
 
 ```
-9971619... feat(core): add to_markdown, find_in_history, recents helpers, and find_in_history keymap
+38157e3... feat(core): add to_markdown, find_in_history, recents helpers, and find_in_history keymap
 ```
 
 ## WU-2a: Find feature (select_and_announce_message + FindDialog + wiring) ✅ COMPLETED
