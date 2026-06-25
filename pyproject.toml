@@ -1,6 +1,6 @@
 [project]
 name = "bellbird"
-version = "0.7.5"
+version = "0.8.0"
 requires-python = ">=3.12"
 dependencies = [
     "wxpython>=4.2",

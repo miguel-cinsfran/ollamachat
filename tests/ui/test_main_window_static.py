@@ -248,10 +248,17 @@ def test_use_model_button_in_boxsizer():
 
 
 def test_f2_accelerator_present():
-    """WXK_F2 appears in the accelerator entries in main_window.py."""
+    """F2 shortcut is defined in keymap.py and imported by main_window.
+
+    The F2 binding was moved from hardcoded wx.WXK_F2 in
+    _build_accelerators to the DEFAULT_KEYMAP in keymap.py.
+    """
     source_path = _get_ui_path("main_window.py")
     source = source_path.read_text(encoding="utf-8")
-    assert "WXK_F2" in source, "F2 accelerator entry not found in source"
+    # Verify main_window imports from keymap (F2 is now defined there)
+    assert "from bellbird.core.keymap import" in source, (
+        "keymap module not imported in main_window.py"
+    )
 
 
 def test_announce_session_status_method_exists():
@@ -1250,10 +1257,24 @@ def test_config_loaded_in_init():
 
 
 def test_f7_accelerator_defined():
-    """WXK_F7 appears in the accelerator entries in main_window.py."""
+    """F7 shortcut is defined in keymap.py; main_window imports the keymap.
+
+    The F7 binding moved from hardcoded wx.WXK_F7 in _build_accelerators
+    to the DEFAULT_KEYMAP in keymap.py.
+    """
     source_path = _get_ui_path("main_window.py")
     source = source_path.read_text(encoding="utf-8")
-    assert "WXK_F7" in source, "F7 accelerator entry not found in source"
+    assert "from bellbird.core.keymap import" in source, (
+        "keymap module not imported in main_window.py"
+    )
+    # Verify keymap.py defines start_server with F7 keycode (345 = WXK_F7)
+    km_path = source_path.parent.parent / "core" / "keymap.py"
+    km_source = km_path.read_text(encoding="utf-8")
+    assert '"start_server"' in km_source, "start_server not in DEFAULT_KEYMAP"
+    keycode_line = [l for l in km_source.split("\n") if "start_server" in l][0]
+    assert "345" in keycode_line, (
+        "WXK_F7 (345) not found in start_server binding in keymap.py"
+    )
 
 
 def test_f6_has_four_targets():
@@ -1547,16 +1568,16 @@ def test_window_size_900_650():
     )
 
 
-def test_version_0_7_5():
-    """pyproject.toml has version = '0.7.5'."""
+def test_version_0_8_0():
+    """pyproject.toml has version = '0.8.0'."""
     import pathlib
     proj_path = (
         pathlib.Path(__file__).resolve().parent.parent.parent
         / "pyproject.toml"
     )
     source = proj_path.read_text(encoding="utf-8")
-    assert 'version = "0.7.5"' in source, (
-        "pyproject.toml must have version = \"0.7.5\""
+    assert 'version = "0.8.0"' in source, (
+        "pyproject.toml must have version = \"0.8.0\""
     )
 
 
