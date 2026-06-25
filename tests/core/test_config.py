@@ -200,6 +200,27 @@ def test_extra_model_folders_default_is_empty_list():
     assert b.extra_model_folders == []
 
 
+def test_last_model_default_is_empty_string():
+    """GIVEN a fresh BellbirdConfig()
+    THEN .last_model == ""."""
+    cfg = BellbirdConfig()
+    assert cfg.last_model == ""
+
+
+def test_last_model_persists_on_save_load(monkeypatch, tmp_path):
+    """GIVEN last_model='llama-3.gguf'
+    WHEN save_config then load_config
+    THEN the loaded config has last_model='llama-3.gguf'."""
+    cfg = BellbirdConfig(last_model="llama-3.gguf")
+    path = tmp_path / "config.json"
+    save_config(cfg, path)
+    from bellbird.core import config as config_module
+
+    monkeypatch.setattr(config_module, "CONFIG_PATH", path)
+    loaded = load_config()
+    assert loaded.last_model == "llama-3.gguf"
+
+
 def test_load_config_applies_max_tokens_migration(monkeypatch, tmp_path):
     """GIVEN a config.json persisted with the legacy max_tokens default (512)
     WHEN load_config() reads it
