@@ -576,27 +576,138 @@ def test_on_tool_result_passes_tool_call_id_to_add_message() -> None:
     import re
     from pathlib import Path
     src = Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
+    # The signature now has defaults for the extra params
     m = re.search(
-        r"def _on_tool_result\(self, result, tool_call_id: str\) -> None:.*?"
+        r"def _on_tool_result\(self, result, tool_call_id: str.*?\) -> None:.*?"
         r"(?=\n    def |\nclass |\Z)",
         src, re.DOTALL,
     )
     assert m is not None, "_on_tool_result not found in main_window.py"
     body = m.group(0)
-    # Find the FULL add_message call (may span multiple lines)
-    add_msg_full = re.search(
-        r"self\._conversation\.add_message\([^)]*\)",
+    # Find the FULL add_message call for the "tool" role (may span multiple lines)
+    # The tool message is the one with tool_call_id kwarg
+    add_msg_tool = re.search(
+        r"self\._conversation\.add_message\(\s*\"tool\"",
         body,
-        re.DOTALL,
     )
-    assert add_msg_full is not None, (
-        "_on_tool_result must call self._conversation.add_message"
+    assert add_msg_tool is not None, (
+        "_on_tool_result must call add_message for role 'tool'"
     )
-    call = add_msg_full.group(0)
-    assert "tool_call_id" in call and "tool_call_id=" in call, (
-        "_on_tool_result's add_message call MUST pass tool_call_id=tool_call_id "
+    # Find the add_message call containing tool_call_id=
+    tool_add_end = body.find(")", add_msg_tool.start())
+    tool_call = body[add_msg_tool.start():tool_add_end + 1]
+    assert "tool_call_id" in tool_call and "tool_call_id=" in tool_call, (
+        "_on_tool_result's tool add_message call MUST pass tool_call_id=tool_call_id "
         "to persist the ID for the next API call. Otherwise the tool-calling "
         "cycle breaks at the second turn. See verify-report v1 CRITICAL-1."
+    )
+
+
+# ─── v0.7.5 tool-support gate, iteration guard, assistant+tool_calls ────────
+
+
+def test_iteration_guard_check_in_continue() -> None:
+    """_continue_after_tool increments counter and checks max_tool_iterations."""
+    import re
+    from pathlib import Path
+    src = Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
+    m = re.search(
+        r"def _continue_after_tool\(self\) -> None:.*?"
+        r"(?=\n    def |\nclass |\Z)",
+        src, re.DOTALL,
+    )
+    assert m is not None, "_continue_after_tool not found"
+    body = m.group(0)
+    assert "max_tool_iterations" in body, (
+        "_continue_after_tool must reference max_tool_iterations"
+    )
+    assert "_tool_iteration_count" in body, (
+        "_continue_after_tool must reference _tool_iteration_count"
+    )
+    # Either an early return or end of method when limit reached
+    assert "return" in body, (
+        "_continue_after_tool must have a return after the iteration guard"
+    )
+
+
+def test_assistant_tool_calls_inserted_in_on_tool_result() -> None:
+    """_on_tool_result inserts assistant message with tool_calls before tool message."""
+    import re
+    from pathlib import Path
+    src = Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
+    m = re.search(
+        r"def _on_tool_result\(self, result, tool_call_id: str.*?\) -> None:.*?"
+        r"(?=\n    def |\nclass |\Z)",
+        src, re.DOTALL,
+    )
+    assert m is not None, "_on_tool_result not found"
+    body = m.group(0)
+    # Must have add_message for assistant with tool_calls= kwarg
+    # The call spans multiple lines with \n"assistant"
+    assert "add_message(" in body and "assistant" in body, (
+        "_on_tool_result must call add_message for the assistant role"
+    )
+    assert "tool_calls" in body, (
+        "_on_tool_result must include tool_calls in the assistant add_message call"
+    )
+    # Verify tool_calls entry is constructed with correct OpenAI fields
+    assert '"id": tool_call_id' in body, (
+        "tool_calls entry must have id set to tool_call_id"
+    )
+    assert '"type": "function"' in body, (
+        "tool_calls entry must have type='function'"
+    )
+    assert '"name": tool_name' in body, (
+        "tool_calls entry function must have name=tool_name"
+    )
+    assert 'json.dumps({"command": command})' in body, (
+        "tool_calls entry must have arguments as JSON string of command"
+    )
+
+
+def test_send_message_gates_on_check_tool_support() -> None:
+    """send_message references check_tool_support and gates tools on it."""
+    import re
+    from pathlib import Path
+    src = Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
+    m = re.search(
+        r"def send_message\(self\) -> None:.*?"
+        r"(?=\n    def |\nclass |\Z)",
+        src, re.DOTALL,
+    )
+    assert m is not None, "send_message not found"
+    body = m.group(0)
+    assert "check_tool_support" in body, (
+        "send_message must call check_tool_support() to probe /props"
+    )
+    # When check_tool_support is False, tools must be set to None
+    assert "tools = None" in body or "tools=None" in body, (
+        "send_message must set tools=None when check_tool_support is False"
+    )
+
+
+def test_post_tool_speech_no_consultando() -> None:
+    """_on_tool_result speech does NOT contain 'Consultando al modelo.'."""
+    import re
+    from pathlib import Path
+    src = Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
+    m = re.search(
+        r"def _on_tool_result\(self, result, tool_call_id: str.*?\) -> None:.*?"
+        r"(?=\n    def |\nclass |\Z)",
+        src, re.DOTALL,
+    )
+    assert m is not None, "_on_tool_result not found"
+    body = m.group(0)
+    assert "Consultando al modelo" not in body, (
+        "_on_tool_result must NOT contain 'Consultando al modelo' speech — "
+        "the short feedback form replaces the verbose announcement"
+    )
+    # Must contain the short feedback pattern
+    assert "código" in body, (
+        "_on_tool_result must contain short feedback with exit code"
+    )
+    assert "self._speech.speak" in body, (
+        "_on_tool_result must call self._speech.speak"
     )
 
 
@@ -1705,7 +1816,7 @@ def test_on_tool_result_guards_result_cancelled():
     source_path = _get_ui_path("main_window.py")
     src = source_path.read_text(encoding="utf-8")
     m = re.search(
-        r"def _on_tool_result\(self, result, tool_call_id: str\) -> None:.*?"
+        r"def _on_tool_result\(self, result, tool_call_id: str.*?\) -> None:.*?"
         r"(?=\n    def |\nclass |\Z)",
         src, re.DOTALL,
     )

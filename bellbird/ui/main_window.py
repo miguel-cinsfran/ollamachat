@@ -5,6 +5,7 @@ ChatPanel (full width). Coordinates the send/receive flow between
 LlamaClient, LlamaRunner, Conversation, and Speech.
 """
 
+import json
 import os
 import subprocess
 import sys
@@ -118,6 +119,7 @@ class MainWindow(wx.Frame):
         self._model_load_thread: threading.Thread | None = None
         self._basename_to_path: dict[str, str] = {}
         self._vision_capable: bool = False
+        self._tool_iteration_count: int = 0
 
         # Must be defined before _build_menu() which uses them for Append() IDs.
         self.ID_START_SERVER = wx.NewIdRef()
@@ -1084,7 +1086,17 @@ class MainWindow(wx.Frame):
         self.status_bar.SetStatusText("Generando respuesta...", 2)
         self._speech.speak("Generando respuesta...", interrupt=True)
 
+        self._tool_iteration_count = 0
         tools = [SHELL_TOOL_DEFINITION] if self._config.tools_enabled else None
+        if tools and not self._client.check_tool_support():
+            tools = None
+            try:
+                self._speech.speak(
+                    "Plantilla del modelo no soporta herramientas. Desactivado.",
+                    interrupt=True,
+                )
+            except Exception:
+                pass
 
         self._client.chat_stream(
             messages=api_messages,
@@ -1220,7 +1232,9 @@ class MainWindow(wx.Frame):
             self.chat_panel.append_tool_blocked(tool_name, command)
             return
 
-        if self._permission_manager.has_session_grant(tool_name):
+        risk = self._permission_manager.classify_risk(command)
+
+        if self._permission_manager.has_session_grant(tool_name, risk):
             self._speech.speak(
                 f"Ejecutando {tool_name}: {command[:50]}", interrupt=True
             )
@@ -1231,16 +1245,20 @@ class MainWindow(wx.Frame):
             "El modelo quiere ejecutar un comando. Escucha el comando y confirma.",
             interrupt=True,
         )
-        risk = self._permission_manager.classify_risk(command)
-        dlg = PermissionDialog(self, tool_name, command, risk)
+        dlg = PermissionDialog(
+            self, tool_name, command, risk,
+            permission_manager=self._permission_manager,
+            speech=self._speech,
+        )
         result = dlg.ShowModal()
+        edited_cmd = dlg.get_command()
         dlg.Destroy()
 
         if result == wx.ID_YES:
-            self._run_tool_and_show(tool_name, tool_call_id, command)
+            self._run_tool_and_show(tool_name, tool_call_id, edited_cmd)
         elif result == wx.ID_OK:
-            self._permission_manager.grant_session(tool_name)
-            self._run_tool_and_show(tool_name, tool_call_id, command)
+            self._permission_manager.grant_session(tool_name, risk)
+            self._run_tool_and_show(tool_name, tool_call_id, edited_cmd)
         else:
             self._speech.speak("Ejecucion denegada.", interrupt=True)
             self.chat_panel.append_tool_denied(tool_name)
@@ -1251,10 +1269,12 @@ class MainWindow(wx.Frame):
         """Ejecuta la tool en hilo de fondo para no bloquear la UI."""
         def worker() -> None:
             result = self._tool_executor.run(tool_name, command)
-            wx.CallAfter(self._on_tool_result, result, tool_call_id)
+            wx.CallAfter(
+                self._on_tool_result, result, tool_call_id, tool_name, command,
+            )
         threading.Thread(target=worker, daemon=True).start()
 
-    def _on_tool_result(self, result, tool_call_id: str) -> None:
+    def _on_tool_result(self, result, tool_call_id: str, tool_name: str = "", command: str = "") -> None:
         """Callback en hilo principal con el resultado de la herramienta."""
         log = get_logger()
         if self._aborted:
@@ -1269,10 +1289,35 @@ class MainWindow(wx.Frame):
             )
             return
         self.chat_panel.append_tool_output(result.to_display_text())
-        self._speech.speak(
-            f"Comando completado, codigo {result.returncode}. Consultando al modelo.",
-            interrupt=True,
-        )
+
+        # Build and insert the assistant+tool_calls message (required by
+        # the OpenAI contract for the 2nd turn).
+        if tool_name:
+            tool_call_entry = {
+                "id": tool_call_id,
+                "type": "function",
+                "function": {
+                    "name": tool_name,
+                    "arguments": json.dumps({"command": command}),
+                },
+            }
+            self._conversation.add_message(
+                "assistant", self._current_response,
+                tool_calls=[tool_call_entry],
+            )
+
+        # Short feedback announcement
+        stdout_text = result.stdout.strip() if result.stdout else ""
+        if stdout_text:
+            first_line = stdout_text.split("\n")[0][:80]
+            feedback = (
+                f"Comando completado, código {result.returncode}. "
+                f"Primeras líneas: {first_line}"
+            )
+        else:
+            feedback = f"Comando completado, código {result.returncode}."
+        self._speech.speak(feedback, interrupt=True)
+
         tool_msg = result.to_tool_message()
         tool_msg["tool_call_id"] = tool_call_id
         # Persist tool_call_id on the message so the next API call carries
@@ -1285,12 +1330,29 @@ class MainWindow(wx.Frame):
         self._continue_after_tool()
 
     def _continue_after_tool(self) -> None:
-        """Reenvía la conversación al modelo con el resultado de la tool."""
+        """Reenvía la conversación al modelo con el resultado de la tool.
+
+        Increments the tool iteration counter and checks against
+        max_tool_iterations. If the limit is reached, appends a visible
+        row and returns without calling chat_stream.
+        """
+        self._tool_iteration_count += 1
+        if self._tool_iteration_count >= self._config.max_tool_iterations:
+            msg = f"[Tool loop terminated: max iterations ({self._config.max_tool_iterations}) reached]"
+            self.chat_panel.append_tool_output(msg)
+            self._speech.speak(
+                "Límite de iteraciones alcanzado", interrupt=True,
+            )
+            self._is_generating = False
+            self.status_bar.SetStatusText("", 2)
+            return
+
         self._aborted = False  # Reset abort flag before re-launching the stream
         api_messages = []
         system_prompt = self._config.system_prompt
         if system_prompt.strip():
             api_messages.append({"role": "system", "content": system_prompt})
+
         api_messages.extend(self._conversation.get_messages_for_api())
 
         tools = (
@@ -1611,6 +1673,7 @@ class MainWindow(wx.Frame):
         self._conversation.clear()
         self.chat_panel.clear()
         self._current_response = ""
+        self._tool_iteration_count = 0
         self._speech.speak("Nueva conversación", interrupt=True)
 
     # ── Window Close ──────────────────────────────────────────────────────────
