@@ -21,10 +21,14 @@ class PermissionManager:
     Los permisos se resetean al cerrar la app (en memoria, nunca a disco).
     La clasificación de riesgo solo informa al usuario — no bloquea nada
     automáticamente excepto los paths de sistema.
+
+    Los permisos de sesión están claveados por (tool_name, risk_level),
+    de modo que cada categoría de riesgo debe otorgarse explícitamente.
+    Un permiso GREEN no habilita comandos RED.
     """
 
     def __init__(self) -> None:
-        self._session_grants: set[str] = set()
+        self._session_grants: set[tuple[str, RiskLevel]] = set()
 
     def classify_risk(self, command: str) -> RiskLevel:
         """Clasifica el riesgo del comando. No bloquea, solo informa."""
@@ -63,14 +67,14 @@ class PermissionManager:
                 return True
         return False
 
-    def has_session_grant(self, tool_name: str) -> bool:
-        return tool_name in self._session_grants
+    def has_session_grant(self, tool_name: str, risk_level: RiskLevel) -> bool:
+        return (tool_name, risk_level) in self._session_grants
 
-    def grant_session(self, tool_name: str) -> None:
-        self._session_grants.add(tool_name)
+    def grant_session(self, tool_name: str, risk_level: RiskLevel) -> None:
+        self._session_grants.add((tool_name, risk_level))
 
-    def revoke_session(self, tool_name: str) -> None:
-        self._session_grants.discard(tool_name)
+    def revoke_session(self, tool_name: str, risk_level: RiskLevel) -> None:
+        self._session_grants.discard((tool_name, risk_level))
 
     def revoke_all(self) -> None:
         self._session_grants.clear()

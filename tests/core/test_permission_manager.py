@@ -67,28 +67,52 @@ class TestPermissionManager:
 
     # ── session grants ───────────────────────────────────────────────────
 
-    def test_session_grant_and_has(self):
-        """After grant_session, has_session_grant returns True."""
-        pm = PermissionManager()
-        assert pm.has_session_grant("shell_execute") is False
-        pm.grant_session("shell_execute")
-        assert pm.has_session_grant("shell_execute") is True
-        assert pm.has_session_grant("other_tool") is False
+    # ── risk-category-keyed grants (v0.7.5) ──────────────────────────────────
 
-    def test_session_revoke(self):
-        """After grant then revoke, has_session_grant returns False."""
+    def test_grant_session_with_risk(self):
+        """grant_session with GREEN makes has_session_grant GREEN True."""
         pm = PermissionManager()
-        pm.grant_session("shell_execute")
-        pm.grant_session("read_file")
-        pm.revoke_session("shell_execute")
-        assert pm.has_session_grant("shell_execute") is False
-        assert pm.has_session_grant("read_file") is True
+        pm.grant_session("shell", RiskLevel.GREEN)
+        assert pm.has_session_grant("shell", RiskLevel.GREEN) is True
 
-    def test_revoke_all(self):
-        """After revoke_all, no tool has a session grant."""
+    def test_grant_green_does_not_cover_red(self):
+        """A GREEN grant does NOT enable RED commands."""
         pm = PermissionManager()
-        pm.grant_session("a")
-        pm.grant_session("b")
+        pm.grant_session("shell", RiskLevel.GREEN)
+        assert pm.has_session_grant("shell", RiskLevel.RED) is False
+
+    def test_grant_red_does_not_cover_green(self):
+        """A RED grant does NOT enable GREEN commands."""
+        pm = PermissionManager()
+        pm.grant_session("shell", RiskLevel.RED)
+        assert pm.has_session_grant("shell", RiskLevel.GREEN) is False
+
+    def test_revoke_session_removes_one_pair(self):
+        """revoke_session(name, level) removes only that pair."""
+        pm = PermissionManager()
+        pm.grant_session("shell", RiskLevel.GREEN)
+        pm.grant_session("shell", RiskLevel.RED)
+        pm.revoke_session("shell", RiskLevel.GREEN)
+        assert pm.has_session_grant("shell", RiskLevel.GREEN) is False
+        assert pm.has_session_grant("shell", RiskLevel.RED) is True
+
+    def test_revoke_all_clears_all(self):
+        """revoke_all clears every stored pair."""
+        pm = PermissionManager()
+        pm.grant_session("a", RiskLevel.GREEN)
+        pm.grant_session("b", RiskLevel.RED)
         pm.revoke_all()
-        assert pm.has_session_grant("a") is False
-        assert pm.has_session_grant("b") is False
+        assert pm.has_session_grant("a", RiskLevel.GREEN) is False
+        assert pm.has_session_grant("b", RiskLevel.RED) is False
+
+    def test_has_session_grant_no_raise(self):
+        """has_session_grant for an unknown (name, level) returns False, no raise."""
+        pm = PermissionManager()
+        assert pm.has_session_grant("never", RiskLevel.GREEN) is False
+
+    def test_grant_session_idempotent(self):
+        """Double grant of same (name, level) is idempotent — no error."""
+        pm = PermissionManager()
+        pm.grant_session("shell", RiskLevel.GREEN)
+        pm.grant_session("shell", RiskLevel.GREEN)
+        assert pm.has_session_grant("shell", RiskLevel.GREEN) is True
