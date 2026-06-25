@@ -627,6 +627,17 @@ class ChatPanel(wx.Panel):
 
         self._attached_text = text
         self.attachment_label.SetLabel(origin_label)
+        # Spec contract (chat/spec.md scenario "select_and_announce for
+        # attached URL"): announce the attachment with the origin label so
+        # the screen reader user gets a clear confirmation of what was
+        # attached. interrupt=True so the announcement is not lost in
+        # background speech.
+        try:
+            self._speech.speak(
+                f"Contenido adjunto: {origin_label}", interrupt=True
+            )
+        except Exception:
+            pass
 
     def get_attached_images(self) -> list[tuple[str, str]]:
         """Get the list of attached images as (base64, mime) tuples.

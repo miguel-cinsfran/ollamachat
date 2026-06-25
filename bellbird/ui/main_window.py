@@ -380,10 +380,12 @@ class MainWindow(wx.Frame):
         self.Bind(wx.EVT_MENU, lambda evt: self._on_export(), menu_export)
 
         # ── Adjuntar URL ──────────────────────────────────────────────────
-        menu_attach_url = archivo_menu.Append(
-            wx.ID_ANY, "&Adjuntar URL...\tCtrl+U",
+        menu_attach_url = wx.MenuItem(
+            archivo_menu, wx.ID_ANY, "&Adjuntar URL...\tCtrl+U",
             "Adjuntar contenido de una URL como contexto del mensaje",
+            name="menu_attach_url",
         )
+        archivo_menu.Append(menu_attach_url)
         self.Bind(
             wx.EVT_MENU, lambda evt: self._on_attach_url(), menu_attach_url
         )
@@ -892,14 +894,41 @@ class MainWindow(wx.Frame):
 
         First tick fires after 8 seconds; re-arms itself every 8s.
         Cancelled when the owning worker completes.
+
+        The re-arm writes to whichever slot the caller used to store the
+        returned Timer. The convention is that the caller does
+        ``self._<some_slot> = self._make_announce_timer(phrase=...)`` and
+        then cancels ``self._<some_slot>`` on completion. This avoids the
+        bug where two concurrent operations (e.g. model load + URL fetch)
+        would race to overwrite ``self._loading_timer`` during re-arm,
+        causing the cancel in one completion callback to miss the
+        re-armed timer of the other.
         """
+        # Detect which slot the caller used by scanning well-known attrs.
+        # We pick the first slot whose current value is the timer we are
+        # about to return. If none match (e.g. caller forgot to assign),
+        # fall back to a private list to avoid leaking the re-arm.
+        caller_slot: str | None = None
+        for slot_name in ("_loading_timer", "_url_fetch_timer"):
+            if getattr(self, slot_name, None) is None:
+                caller_slot = slot_name
+                break
+
         def _announce() -> None:
             if self._is_closing:
                 return
             self._speech.speak(phrase, interrupt=False)
-            self._loading_timer = threading.Timer(8.0, _announce)
-            self._loading_timer.daemon = True
-            self._loading_timer.start()
+            next_t = threading.Timer(8.0, _announce)
+            next_t.daemon = True
+            if caller_slot is not None:
+                # Only overwrite the slot if the current value is still
+                # the previous timer we chained from. If the caller
+                # already cancelled and reset the slot, the previous
+                # timer is dead and we must not re-arm into it.
+                current = getattr(self, caller_slot, None)
+                if current is t or current is None:
+                    setattr(self, caller_slot, next_t)
+            next_t.start()
 
         t = threading.Timer(8.0, _announce)
         t.daemon = True
