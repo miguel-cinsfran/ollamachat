@@ -1755,34 +1755,44 @@ class MainWindow(wx.Frame):
         self._speech.speak(about_msg, interrupt=True)
 
     def _show_shortcuts(self) -> None:
-        """Show keyboard shortcuts dialog."""
-        shortcuts = (
-            "Atajos de teclado:\n\n"
-            "Alt+1: Foco en campo de mensaje\n"
-            "Alt+2: Foco en historial\n"
-            "Alt+3: Foco en selector de modelo\n"
-            "Alt+6: Foco en usar modelo\n"
-            "Ctrl+N: Nueva conversación\n"
-            "Ctrl+O: Abrir conversación\n"
-            "Ctrl+S: Guardar conversación\n"
-            "F2: Anunciar estado de sesión\n"
-            "F5: Buscar modelos\n"
-            "F6: Ciclar paneles\n"
-            "Escape: Detener generación\n"
-            "Enter: Enviar mensaje\n"
-            "Shift+Enter: Nueva línea en el input\n"
-            "F7: Iniciar servidor\n"
-            "Ctrl+F7: Detener servidor\n"
-            "Ctrl+Enter (en historial): Abrir en navegador\n"
-            "Supr (en historial): Eliminar mensaje\n"
+        """Show keymap-driven shortcuts dialog.
+
+        Builds a ``wx.Dialog`` (NOT ``wx.MessageDialog`` per AGENTS.md)
+        with a read-only multiline ``wx.TextCtrl`` body filled by
+        ``Keymap.format_shortcuts_text()``. The dialog has a "Cerrar"
+        button with ``name="close_shortcuts_button"`` and responds to
+        Escape.
+        """
+        body_text = self._keymap.format_shortcuts_text()
+        dlg = wx.Dialog(self, name="shortcuts_dialog", title="Atajos de teclado")
+
+        root_sizer = wx.BoxSizer(wx.VERTICAL)
+
+        label = wx.StaticText(dlg, label="Atajos de teclado disponibles:")
+        root_sizer.Add(label, flag=wx.ALL, border=12)
+
+        body = wx.TextCtrl(
+            dlg,
+            style=wx.TE_MULTILINE | wx.TE_READONLY | wx.TE_RICH2,
+            name="shortcuts_text",
         )
-        wx.MessageDialog(
-            self,
-            message=shortcuts,
-            caption="Atajos de teclado",
-            style=wx.OK | wx.ICON_INFORMATION,
-        ).ShowModal()
-        self._speech.speak(shortcuts, interrupt=True)
+        body.SetValue(body_text)
+        root_sizer.Add(body, proportion=1, flag=wx.EXPAND | wx.LEFT | wx.RIGHT, border=12)
+
+        close_btn = wx.Button(dlg, label="Cerrar", name="close_shortcuts_button")
+        close_btn.Bind(wx.EVT_BUTTON, lambda evt: dlg.EndModal(wx.ID_OK))
+        close_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        close_sizer.Add(close_btn, flag=wx.ALIGN_CENTER)
+        root_sizer.Add(close_sizer, flag=wx.ALIGN_CENTER | wx.ALL, border=12)
+
+        dlg.SetSizer(root_sizer)
+        dlg.SetEscapeId(wx.ID_CANCEL)  # Escape closes the dialog
+        dlg.SetInitialSize(wx.Size(500, 400))
+        close_btn.SetFocus()
+
+        dlg.ShowModal()
+        self._speech.speak(body_text, interrupt=True)
+        dlg.Destroy()
 
     def _open_log_file(self) -> None:
         """Open the debug log file in a text editor."""
