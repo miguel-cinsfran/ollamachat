@@ -512,6 +512,172 @@ def test_legacy_message_no_tool_calls_still_works():
     assert len(api) == 2
 
 
+# ─── truncate_to (v0.8.0) ───────────────────────────────────────────────────
+
+
+def test_truncate_to_preserves_system_rows():
+    """GIVEN messages [system, user, assistant(tool_calls), tool, user]
+    WHEN truncate_to(3)
+    THEN result == [system, user, assistant(tool_calls), tool]
+    AND system row is unchanged
+    AND get_messages_for_api carries tool_calls on the assistant row."""
+    from bellbird.core.conversation import Conversation
+
+    conv = Conversation()
+    conv.add_message("system", "Eres útil.")
+    conv.add_message("user", "Hola")
+    conv.add_message("assistant", "", tool_calls=[{"id": "c1", "type": "function"}])
+    conv.add_message("tool", "output", tool_call_id="c1")
+    conv.add_message("user", "otra cosa")
+
+    conv.truncate_to(3)
+    assert len(conv.messages) == 4
+    assert conv.messages[0]["role"] == "system"
+    assert conv.messages[0]["content"] == "Eres útil."
+    assert conv.messages[2]["role"] == "assistant"
+    assert "tool_calls" in conv.messages[2]
+
+    api = conv.get_messages_for_api()
+    assert len(api) == 4
+    assert api[2].get("tool_calls") is not None
+
+
+def test_truncate_to_drops_tool_calls_assistant_row_correctly():
+    """GIVEN [system, user, assistant(tool_calls=[c1]), tool]
+    WHEN truncate_to(2)
+    THEN assistant with tool_calls preserved, tool row dropped."""
+    from bellbird.core.conversation import Conversation
+
+    conv = Conversation()
+    conv.add_message("system", "Eres útil.")
+    conv.add_message("user", "Hola")
+    conv.add_message("assistant", "", tool_calls=[{"id": "c1", "type": "function"}])
+    conv.add_message("tool", "output", tool_call_id="c1")
+
+    conv.truncate_to(2)
+    assert len(conv.messages) == 3
+    assert conv.messages[2]["role"] == "assistant"
+    assert "tool_calls" in conv.messages[2]
+
+    api = conv.get_messages_for_api()
+    assert len(api) == 3
+    assert api[2].get("tool_calls") is not None
+
+
+def test_truncate_to_without_system():
+    """GIVEN [user, assistant]
+    WHEN truncate_to(0)
+    THEN result == [user] (keeps index 0)."""
+    from bellbird.core.conversation import Conversation
+
+    conv = Conversation()
+    conv.add_message("user", "Q1")
+    conv.add_message("assistant", "A1")
+    conv.truncate_to(0)
+    assert len(conv.messages) == 1
+    assert conv.messages[0]["role"] == "user"
+    assert conv.messages[0]["content"] == "Q1"
+
+
+def test_truncate_to_index_zero():
+    """GIVEN [user, assistant]
+    WHEN truncate_to(0)
+    THEN only index 0 is kept (message at index 0 is inclusive)."""
+    from bellbird.core.conversation import Conversation
+
+    conv = Conversation()
+    conv.add_message("user", "Q1")
+    conv.add_message("assistant", "A1")
+    conv.truncate_to(0)
+    assert len(conv.messages) == 1
+    assert conv.messages[0]["role"] == "user"
+
+
+# ─── pop_last (v0.8.0) ────────────────────────────────────────────────────
+
+
+def test_pop_last_drops_trailing_assistant_and_tool():
+    """GIVEN [user, assistant(tool_calls=[c1]), tool]
+    WHEN pop_last()
+    THEN trailing tool removed first, then assistant,
+    AND result == [user]."""
+    from bellbird.core.conversation import Conversation
+
+    conv = Conversation()
+    conv.add_message("user", "Q1")
+    tc = [{"id": "c1", "type": "function", "function": {"name": "test", "arguments": "{}"}}]
+    conv.add_message("assistant", "", tool_calls=tc)
+    conv.add_message("tool", "output", tool_call_id="c1")
+
+    conv.pop_last()
+    assert len(conv.messages) == 1
+    assert conv.messages[0]["role"] == "user"
+
+    api = conv.get_messages_for_api()
+    assert len(api) == 1
+
+
+def test_pop_last_removes_trailing_user():
+    """GIVEN [user, assistant(tool_calls), tool, user]
+    WHEN pop_last(role='user')
+    THEN trailing user removed, assistant+tool preserved."""
+    from bellbird.core.conversation import Conversation
+
+    conv = Conversation()
+    conv.add_message("user", "Q1")
+    tc = [{"id": "c1", "type": "function", "function": {"name": "test", "arguments": "{}"}}]
+    conv.add_message("assistant", "", tool_calls=tc)
+    conv.add_message("tool", "output", tool_call_id="c1")
+    conv.add_message("user", "Q2")
+
+    conv.pop_last(role="user")
+    assert len(conv.messages) == 3
+    assert conv.messages[-1]["role"] == "tool"
+    api = conv.get_messages_for_api()
+    assert len(api) == 3
+    assert api[-1]["role"] == "tool"
+    assert api[-1]["tool_call_id"] == "c1"
+
+
+def test_pop_last_without_matching_role_noop():
+    """GIVEN [user, assistant]
+    WHEN pop_last(role='tool')
+    THEN no message removed (no trailing tool row)."""
+    from bellbird.core.conversation import Conversation
+
+    conv = Conversation()
+    conv.add_message("user", "Q1")
+    conv.add_message("assistant", "A1")
+
+    conv.pop_last(role="tool")
+    assert len(conv.messages) == 2
+
+
+def test_pop_last_empty_noop():
+    """GIVEN empty messages
+    WHEN pop_last()
+    THEN no error, messages remains empty."""
+    from bellbird.core.conversation import Conversation
+
+    conv = Conversation()
+    conv.pop_last()
+    assert conv.messages == []
+
+
+def test_pop_last_assistant_without_tool():
+    """GIVEN [user, assistant]
+    WHEN pop_last()
+    THEN assistant removed, user remains."""
+    from bellbird.core.conversation import Conversation
+
+    conv = Conversation()
+    conv.add_message("user", "Q1")
+    conv.add_message("assistant", "A1")
+    conv.pop_last()
+    assert len(conv.messages) == 1
+    assert conv.messages[0]["role"] == "user"
+
+
 def test_tool_calls_in_order_with_tool():
     """Assistant msg with tool_calls precedes following tool message in API."""
     from bellbird.core.conversation import Conversation

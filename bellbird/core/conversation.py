@@ -131,6 +131,50 @@ class Conversation:
         conv.messages = data.get("messages", [])
         return conv
 
+    def truncate_to(self, index: int) -> None:
+        """Keep messages up to and including ``index``, drop everything after.
+
+        The message at ``index`` is kept; only messages strictly AFTER it
+        are removed. System-role rows at the head (before ``index``) are
+        preserved — they are never removed by this operation.
+
+        Args:
+            index: Zero-based index; all messages ``[index+1:]`` are removed.
+                A value of ``-1`` or less clears all messages.
+        """
+        self.messages = self.messages[: index + 1]
+
+    def pop_last(self, role: str | None = None) -> None:
+        """Drop the trailing row, optionally filtered by ``role``.
+
+        If the trailing pair is ``assistant(tool_calls=...)`` followed by
+        ``tool``, BOTH are removed together (the pair drops atomically so
+        the API payload never contains an orphaned ``tool`` row).
+
+        Args:
+            role: If set, only the trailing row with this role is removed.
+                If the trailing row does not match ``role``, nothing is removed.
+        """
+        if not self.messages:
+            return
+        if role is not None and self.messages[-1].get("role") != role:
+            return
+
+        # Check for the assistant(tool_calls) + tool pair at the end
+        if (
+            len(self.messages) >= 2
+            and self.messages[-2].get("role") == "assistant"
+            and "tool_calls" in self.messages[-2]
+            and self.messages[-1].get("role") == "tool"
+        ):
+            # Pop the tool row first, then the assistant row (pair)
+            self.messages.pop()
+            self.messages.pop()
+            return
+
+        # Standard pop: remove the trailing message
+        self.messages.pop()
+
     @classmethod
     def save(
         cls, conv: "Conversation", filepath: Path, system_prompt: str = ""
