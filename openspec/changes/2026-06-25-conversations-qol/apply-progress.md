@@ -82,10 +82,43 @@
 - `tests/smoke/`: 1/1 ✅
 - **Total**: 516/516 passed
 
-### Notes for WU-2b
+## WU-2b: Recents + Export + Auto-restore + Persist ✅ COMPLETED
 
-- `select_and_announce_message()` uses full text for speech (not preview)
-- `find_in_history()` 1-based ↔ 0-based conversion handled in `find_and_select()`
-- `FindDialog` is `wx.Dialog` with 3 native `wx.Button`s — no `wx.MessageDialog`
-- Ctrl+F handler registered in `_build_accelerators`; FindDialog shown modally; focus restored to `message_list` on close
-- WU-2b scope: Recents submenu, Exportar..., Auto-restore, run_tests.bat registration
+- **Date**: 2026-06-25
+- **Strategy**: single-pr (D2)
+- **Execution**: auto (A2)
+
+### Completed Tasks
+
+| Task | Status | Files Changed |
+|------|--------|---------------|
+| 2.5 Submenú "Recientes" en menú Archivo | ✅ | `bellbird/ui/main_window.py`, NEW `tests/ui/test_main_window_runtime.py` |
+| 2.6 Wire "Exportar a Markdown..." en menú Archivo | ✅ | `bellbird/ui/main_window.py`, `tests/ui/test_main_window_runtime.py` |
+| 2.7 Auto-restaura al abrir | ✅ | `bellbird/ui/main_window.py`, `tests/ui/test_main_window_runtime.py` |
+| 2.8 Persistir last_session_path + recent_files en save/load | ✅ | `bellbird/ui/main_window.py`, `tests/ui/test_main_window_runtime.py` |
+| 2.9 Registrar tests wx-runtime en run_tests.bat | ✅ | `run_tests.bat` |
+
+### Files Changed
+
+| File | Lines Added | Lines Removed |
+|------|-------------|---------------|
+| `bellbird/ui/main_window.py` | ~140 | 0 |
+| `tests/ui/test_main_window_runtime.py` | NEW (275) | 0 |
+| `run_tests.bat` | 2 | 1 |
+| **Total** | **~417** | **1** |
+
+### Tests Executed (WSL)
+
+- `tests/core/`: 238/238 ✅
+- AST/static UI: 308/308 ✅
+- `tests/smoke/`: 1/1 ✅
+- **Total**: 547/547 passed (wx-runtime tests in `test_main_window_runtime.py` skip gracefully in WSL — 1 skipped)
+
+### Implementation Notes
+
+- **Recents submenu**: Built dynamically on `EVT_MENU_OPEN`. Filters non-existent paths via `os.path.exists`. Paths >60 chars truncated with ellipsis in the middle. Empty list shows disabled "Sin recientes" item.
+- **Export**: `wx.FileDialog` with Markdown/Text wildcards. UTF-8 write. Error handling via try/except with speech announcement. No crash on failure.
+- **Auto-restore**: `wx.CallAfter` from `__init__` (non-blocking). On failure, clears `last_session_path` + saves config. No dialog shown.
+- **Persist**: `save_conversation` and `load_conversation` update `last_session_path` and `recent_files` via `update_recents()` helper on success only.
+- All `speech.speak` calls wrapped in try/except per AGENTS.md.
+- UI strings in Spanish: "Recientes", "Sin recientes", "Exportar a Markdown...", "Sesión restaurada", etc.

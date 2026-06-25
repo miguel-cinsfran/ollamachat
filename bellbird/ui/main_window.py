@@ -32,7 +32,13 @@ from bellbird.core.startup import probe as startup_probe
 from bellbird.core.logger import get_logger, get_log_path
 from bellbird.core.speech import Speech
 from bellbird.ui.chat_panel import ChatPanel
-from bellbird.core.config import BellbirdConfig, load_config, save_config
+from bellbird.core.config import (
+    BellbirdConfig,
+    load_config,
+    save_config,
+    should_auto_restore,
+    update_recents,
+)
 from bellbird.core.keymap import Keymap, DEFAULT_KEYMAP, KEYMAP_MOD_NONE
 from bellbird.core.model_meta import find_mmproj_for_model
 from bellbird.core.permission_manager import PermissionManager
@@ -122,6 +128,9 @@ class MainWindow(wx.Frame):
         self._vision_capable: bool = False
         self._tool_iteration_count: int = 0
         self._tool_executing: bool = False
+        self._recent_items: dict[int, str] = {}
+        self._recents_menu: wx.Menu | None = None
+        self._archivo_menu: wx.Menu | None = None
 
         # Must be defined before _build_menu() which uses them for Append() IDs.
         self.ID_START_SERVER = wx.NewIdRef()
@@ -142,6 +151,7 @@ class MainWindow(wx.Frame):
         self.Bind(wx.EVT_CLOSE, self._on_close)
         self._start_probe_thread()
         wx.CallAfter(self._set_initial_focus)
+        wx.CallAfter(self._auto_restore_last_session)
 
     # ── UI Construction ───────────────────────────────────────────────────
 
@@ -352,6 +362,24 @@ class MainWindow(wx.Frame):
 
         archivo_menu.AppendSeparator()
 
+        # ── Recientes submenu ─────────────────────────────────────────
+        self._recents_menu = wx.Menu()
+        archivo_menu.Append(
+            wx.ID_ANY, "&Recientes", self._recents_menu,
+            "Abrir una conversación reciente",
+        )
+
+        archivo_menu.AppendSeparator()
+
+        # ── Exportar a Markdown ───────────────────────────────────────
+        menu_export = archivo_menu.Append(
+            wx.ID_ANY, "&Exportar a Markdown...",
+            "Exportar la conversación actual a Markdown",
+        )
+        self.Bind(wx.EVT_MENU, lambda evt: self._on_export(), menu_export)
+
+        archivo_menu.AppendSeparator()
+
         menu_prefs = archivo_menu.Append(
             wx.ID_PREFERENCES, "&Preferencias\tCtrl+,",
             "Abrir el diálogo de preferencias",
@@ -416,6 +444,9 @@ class MainWindow(wx.Frame):
         self.Bind(wx.EVT_MENU, lambda evt: self._open_log_file(), menu_log)
 
         menu_bar.Append(ayuda_menu, "A&yuda")
+
+        self._archivo_menu = archivo_menu
+        self.Bind(wx.EVT_MENU_OPEN, self._on_menu_open)
 
         self.SetMenuBar(menu_bar)
 
@@ -1669,6 +1700,180 @@ class MainWindow(wx.Frame):
         self._temp_html_files.append(temp_path)
         webbrowser.open(f"file:///{temp_path}")
 
+    # ── Recents submenu ────────────────────────────────────────────────────
+
+    def _on_menu_open(self, event: wx.MenuEvent) -> None:
+        """Rebuild the recents submenu whenever a menu opens."""
+        self._refresh_recents_menu()
+
+    def _refresh_recents_menu(self) -> None:
+        """Rebuild the Recientes submenu from config.recent_files.
+
+        Filters out non-existent paths, truncates labels, and populates
+        the submenu. Called from ``_on_menu_open`` before the menu is shown.
+        """
+        if self._recents_menu is None:
+            return
+        menu = self._recents_menu
+        menu.Clear()
+        self._recent_items.clear()
+
+        valid = [
+            p for p in self._config.recent_files if os.path.exists(p)
+        ]
+
+        if not valid:
+            item = menu.Append(wx.ID_ANY, "Sin recientes")
+            item.Enable(False)
+            return
+
+        for path_str in valid:
+            label = self._truncate_path(path_str, 60)
+            item_id = wx.NewIdRef()
+            menu.Append(item_id, label)
+            self._recent_items[item_id.GetId()] = path_str
+            self.Bind(wx.EVT_MENU, self._on_recent_click, id=item_id)
+
+    @staticmethod
+    def _truncate_path(path: str, max_len: int = 60) -> str:
+        """Truncate a path with ellipsis in the middle if longer than max_len.
+
+        Args:
+            path: File path string.
+            max_len: Maximum length before truncation.
+
+        Returns:
+            Truncated string with ``...`` in the middle, or the original
+            if short enough.
+        """
+        if len(path) <= max_len:
+            return path
+        half = (max_len - 3) // 2
+        return path[:half] + "..." + path[-half:]
+
+    def _on_recent_click(self, event: wx.CommandEvent) -> None:
+        """Handle click on a recent-file menu item.
+
+        Looks up the path from ``self._recent_items`` by menu item ID
+        and loads the conversation. Stale events from old menu items
+        are silently ignored.
+        """
+        item_id = event.GetId()
+        path = self._recent_items.get(item_id)
+        if path is None:
+            return
+        self._load_recent(path)
+
+    def _load_recent(self, path: str) -> None:
+        """Load a conversation from a recent-file path.
+
+        Args:
+            path: Absolute path to a conversation JSON file.
+        """
+        try:
+            conv, system_prompt = Conversation.load(Path(path))
+            self._conversation = conv
+            self._config.system_prompt = system_prompt
+            self._config.last_session_path = os.path.abspath(path)
+            self._config.recent_files = update_recents(
+                path, self._config.recent_files,
+            )
+            try:
+                save_config(self._config)
+            except OSError:
+                pass
+            self.chat_panel.set_history(
+                [(m["role"], m["content"]) for m in conv.messages]
+            )
+            try:
+                self._speech.speak("Conversación cargada", interrupt=True)
+            except Exception:
+                pass
+        except Exception as e:
+            error_msg = f"No se pudo cargar la conversación: {e}"
+            try:
+                self._speech.speak(error_msg, interrupt=True)
+            except Exception:
+                pass
+
+    # ── Export ──────────────────────────────────────────────────────────────
+
+    def _on_export(self) -> None:
+        """Export the current conversation to a Markdown file.
+
+        Shows a ``wx.FileDialog`` with Markdown and Text wildcards.
+        Writes UTF-8 content and announces the result via speech.
+        Never crashes on failure.
+        """
+        dialog = wx.FileDialog(
+            self,
+            message="Exportar a Markdown",
+            defaultDir="",
+            defaultFile="",
+            wildcard="Markdown (*.md)|*.md|Text (*.txt)|*.txt",
+            style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT,
+        )
+        if dialog.ShowModal() == wx.ID_OK:
+            filepath = dialog.GetPath()
+            try:
+                md = self._conversation.to_markdown(
+                    system_prompt=self._config.system_prompt,
+                )
+                with open(filepath, "w", encoding="utf-8") as f:
+                    f.write(md)
+                try:
+                    self._speech.speak(
+                        f"Exportado a {Path(filepath).name}",
+                        interrupt=True,
+                    )
+                except Exception:
+                    pass
+            except Exception:
+                try:
+                    self._speech.speak(
+                        "Error al exportar", interrupt=True,
+                    )
+                except Exception:
+                    pass
+        dialog.Destroy()
+
+    # ── Auto-restore ────────────────────────────────────────────────────────
+
+    def _auto_restore_last_session(self) -> None:
+        """Restore the last session on startup if configured.
+
+        Called via ``wx.CallAfter`` from ``__init__`` so the window is
+        shown before any I/O. Never crashes on failure: errors are logged
+        and the session path is cleared.
+        """
+        if not should_auto_restore(self._config):
+            return
+        path_str = self._config.last_session_path
+        try:
+            conv, system_prompt = Conversation.load(Path(path_str))
+            self._conversation = conv
+            self._config.system_prompt = system_prompt
+            self.chat_panel.set_history(
+                [(m["role"], m["content"]) for m in conv.messages]
+            )
+            try:
+                self._speech.speak("Sesión restaurada", interrupt=True)
+            except Exception:
+                pass
+        except Exception:
+            self._config.last_session_path = ""
+            try:
+                save_config(self._config)
+            except OSError:
+                pass
+            try:
+                self._speech.speak(
+                    "No se pudo restaurar la última sesión",
+                    interrupt=True,
+                )
+            except Exception:
+                pass
+
     # ── Save / Load ─────────────────────────────────────────────────────────
 
     def save_conversation(self) -> None:
@@ -1687,6 +1892,15 @@ class MainWindow(wx.Frame):
                 self._conversation, filepath,
                 system_prompt=self._config.system_prompt,
             )
+            # Persist session path and recents only on successful save
+            self._config.last_session_path = os.path.abspath(filepath)
+            self._config.recent_files = update_recents(
+                filepath, self._config.recent_files,
+            )
+            try:
+                save_config(self._config)
+            except OSError:
+                pass
             self._speech.speak("Conversación guardada", interrupt=True)
         dialog.Destroy()
 
@@ -1705,6 +1919,10 @@ class MainWindow(wx.Frame):
             try:
                 self._conversation, system_prompt = Conversation.load(filepath)
                 self._config.system_prompt = system_prompt
+                self._config.last_session_path = os.path.abspath(filepath)
+                self._config.recent_files = update_recents(
+                    filepath, self._config.recent_files,
+                )
                 save_config(self._config)
                 self.chat_panel.set_history(
                     [(m["role"], m["content"]) for m in self._conversation.messages]
