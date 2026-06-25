@@ -18,9 +18,9 @@ echo.
     echo.
     uv run pytest tests/ -v --tb=short 2>&1
     echo.
-    echo === WX-RUNTIME TESTS (chat_panel + find_dialog + main_window + message_detail_dialog) ===
+    echo === WX-RUNTIME TESTS (chat_panel + find_dialog + main_window + url_dialog + message_detail_dialog) ===
     echo.
-    uv run pytest tests/ui/test_chat_panel_runtime.py tests/ui/test_find_dialog.py tests/ui/test_main_window_runtime.py tests/ui/test_message_detail_dialog_runtime.py tests/ui/test_permission_dialog_runtime.py -v --tb=short 2>&1
+    uv run pytest tests/ui/test_chat_panel_runtime.py tests/ui/test_find_dialog.py tests/ui/test_main_window_runtime.py tests/ui/test_url_dialog.py tests/ui/test_message_detail_dialog_runtime.py tests/ui/test_permission_dialog_runtime.py -v --tb=short 2>&1
     echo.
     echo === SMOKE TEST ^(smoke_test.py^) ===
     echo.

@@ -2431,3 +2431,124 @@ def test_on_find_method_exists() -> None:
 
     assert found, "_on_find method not found in MainWindow"
 
+
+def test_attach_url_handler_registered() -> None:
+    """MainWindow._build_accelerators registers the 'attach_url' handler.
+
+    The handler dict must contain attach_url → _on_attach_url, so that
+    the Ctrl+U keymap binding triggers the URL dialog.
+    """
+    from pathlib import Path
+    src = Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
+    tree = ast.parse(src)
+
+    # Find the handlers dict in _build_accelerators
+    handlers_dict = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "_build_accelerators":
+            for child in ast.walk(node):
+                if isinstance(child, ast.Dict) and any(
+                    isinstance(k, ast.Constant) and k.value == "attach_url"
+                    for k in child.keys
+                ):
+                    handlers_dict = child
+                    break
+
+    assert handlers_dict is not None, (
+        "attach_url key not found in the handlers dict inside "
+        "_build_accelerators"
+    )
+
+
+def test_on_attach_url_method_exists() -> None:
+    """MainWindow has an _on_attach_url method that handles Ctrl+U."""
+    from pathlib import Path
+    src = Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
+    tree = ast.parse(src)
+
+    found = False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "_on_attach_url":
+            found = True
+            break
+
+    assert found, "_on_attach_url method not found in MainWindow"
+
+
+def test_fetch_url_worker_method_exists() -> None:
+    """MainWindow has _fetch_url_worker method for background fetch."""
+    from pathlib import Path
+    src = Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
+    tree = ast.parse(src)
+
+    found = False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "_fetch_url_worker":
+            found = True
+            break
+
+    assert found, "_fetch_url_worker method not found in MainWindow"
+
+
+def test_on_fetch_complete_method_exists() -> None:
+    """MainWindow has _on_fetch_complete method for fetch result."""
+    from pathlib import Path
+    src = Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
+    tree = ast.parse(src)
+
+    found = False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "_on_fetch_complete":
+            found = True
+            break
+
+    assert found, "_on_fetch_complete method not found in MainWindow"
+
+
+def test_derive_origin_label_method_exists() -> None:
+    """MainWindow has _derive_origin_label static method."""
+    from pathlib import Path
+    src = Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
+    tree = ast.parse(src)
+
+    found = False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "_derive_origin_label":
+            found = True
+            break
+
+    assert found, "_derive_origin_label method not found in MainWindow"
+
+
+def test_url_fetch_timer_slot_in_init() -> None:
+    """MainWindow.__init__ initializes self._url_fetch_timer."""
+    from pathlib import Path
+    src = Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
+    assert "self._url_fetch_timer" in src, (
+        "self._url_fetch_timer must be declared in MainWindow"
+    )
+
+
+def test_no_message_dialog_in_attach_url_paths() -> None:
+    """No wx.MessageDialog in _on_attach_url, _on_fetch_complete, or _fetch_url_worker.
+
+    All user feedback for the URL fetch feature goes through speech.speak.
+    """
+    from pathlib import Path
+    src = Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
+
+    # Find each method and check it has no MessageDialog
+    import re
+    for method_name in ("_on_attach_url", "_on_fetch_complete", "_fetch_url_worker"):
+        m = re.search(
+            rf"def {method_name}\(.*?\) -> None:.*?"
+            r"(?=\n    def |\nclass |\Z)",
+            src, re.DOTALL,
+        )
+        assert m is not None, f"{method_name} not found"
+        body = m.group(0)
+        assert "wx.MessageDialog" not in body, (
+            f"{method_name} must NOT contain wx.MessageDialog — "
+            f"all feedback goes through speech.speak per AGENTS.md"
+        )
+

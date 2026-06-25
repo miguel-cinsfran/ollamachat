@@ -598,6 +598,36 @@ class ChatPanel(wx.Panel):
                     f"No se pudo adjuntar: {path.name}", interrupt=True
                 )
 
+    def attach_url(self, url: str, text: str, origin_label: str) -> None:
+        """Attach fetched web page text as message context.
+
+        Mirrors the ``attach_file`` text path: stores the fetched text
+        in ``_attached_text``, clears any previously attached images,
+        and updates the attachment label.
+
+        Empty text is a no-op — does not clear an existing attachment
+        and does not speak.
+
+        Args:
+            url: The URL that was fetched (for potential future use).
+            text: The fetched text content.
+            origin_label: Human-readable label for the attachment
+                (e.g. ``"example.com/docs/page"``).
+        """
+        if not text:
+            return  # No-op for empty text
+
+        # If there are attached images, announce replacement before clearing
+        if self._attached_images:
+            try:
+                self._speech.speak("Imagen reemplazada", interrupt=False)
+            except Exception:
+                pass
+            self._attached_images = []
+
+        self._attached_text = text
+        self.attachment_label.SetLabel(origin_label)
+
     def get_attached_images(self) -> list[tuple[str, str]]:
         """Get the list of attached images as (base64, mime) tuples.
 

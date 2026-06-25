@@ -123,6 +123,7 @@ class MainWindow(wx.Frame):
         self._focus_cycle_index = 0
         self._last_beep_time = 0.0
         self._loading_timer: threading.Timer | None = None
+        self._url_fetch_timer: threading.Timer | None = None
         self._model_load_thread: threading.Thread | None = None
         self._basename_to_path: dict[str, str] = {}
         self._vision_capable: bool = False
@@ -378,6 +379,15 @@ class MainWindow(wx.Frame):
         )
         self.Bind(wx.EVT_MENU, lambda evt: self._on_export(), menu_export)
 
+        # ── Adjuntar URL ──────────────────────────────────────────────────
+        menu_attach_url = archivo_menu.Append(
+            wx.ID_ANY, "&Adjuntar URL...\tCtrl+U",
+            "Adjuntar contenido de una URL como contexto del mensaje",
+        )
+        self.Bind(
+            wx.EVT_MENU, lambda evt: self._on_attach_url(), menu_attach_url
+        )
+
         archivo_menu.AppendSeparator()
 
         menu_prefs = archivo_menu.Append(
@@ -486,6 +496,7 @@ class MainWindow(wx.Frame):
             "edit_next": lambda: self._on_edit_next(),
             "regenerate": lambda: self._on_regenerate_last(),
             "find_in_history": lambda: self._on_find(),
+            "attach_url": lambda: self._on_attach_url(),
         }
 
         accel_entries: list[wx.AcceleratorEntry] = []
@@ -639,6 +650,144 @@ class MainWindow(wx.Frame):
             interrupt=True,
         )
 
+    # ── Attach URL (Ctrl+U) ────────────────────────────────────────────────
+
+    def _on_attach_url(self) -> None:
+        """Open URL dialog and start fetch on a daemon thread (Ctrl+U).
+
+        Gates on mid-generation: if generating, speaks and returns.
+        After dialog closes, validates scheme, speaks, spawns timer and
+        daemon thread. Never blocks the UI thread.
+        """
+        # Gate: no-op mid-generation
+        if self.chat_panel._is_generating:
+            try:
+                self._speech.speak("Generación en curso", interrupt=False)
+            except Exception:
+                pass
+            return
+
+        from bellbird.ui.url_dialog import URLDialog
+
+        dlg = URLDialog(self)
+        result = dlg.ShowModal()
+        url = dlg.get_url()
+        dlg.Destroy()
+
+        # Restore focus to message list
+        self.chat_panel.message_list.SetFocus()
+
+        if result != wx.ID_OK:
+            return
+
+        if not url:
+            try:
+                self._speech.speak("URL vacía", interrupt=False)
+            except Exception:
+                pass
+            return
+
+        # Pre-validate scheme (SSRF guard)
+        import re
+        if not re.match(r"^https?://", url, re.IGNORECASE):
+            try:
+                self._speech.speak(
+                    "Solo URLs http o https", interrupt=False
+                )
+            except Exception:
+                pass
+            return
+
+        # Immediate feedback + announce timer + daemon thread
+        try:
+            self._speech.speak("Descargando página", interrupt=False)
+        except Exception:
+            pass
+
+        self._url_fetch_timer = self._make_announce_timer(
+            phrase="Descargando página, por favor espera..."
+        )
+        max_chars = self._config.url_max_chars
+        threading.Thread(
+            target=self._fetch_url_worker,
+            args=(url, max_chars),
+            daemon=True,
+        ).start()
+
+    def _fetch_url_worker(self, url: str, max_chars: int) -> None:
+        """Background thread: fetch URL text and post result to main thread.
+
+        Args:
+            url: The URL to fetch.
+            max_chars: Maximum characters for the returned text.
+        """
+        from bellbird.core.web_fetch import fetch_text
+
+        result = fetch_text(url, max_chars=max_chars)
+        wx.CallAfter(self._on_fetch_complete, result)
+
+    def _on_fetch_complete(self, result) -> None:
+        """Handle the fetch result on the main thread.
+
+        Cancels the announce timer, then attaches content or speaks error.
+        Never shows a MessageDialog.
+        """
+        # Cancel announce timer
+        if self._url_fetch_timer is not None:
+            self._url_fetch_timer.cancel()
+            self._url_fetch_timer = None
+
+        if result.ok:
+            origin_label = self._derive_origin_label(result.url)
+            self.chat_panel.attach_url(
+                result.url, result.text, origin_label=origin_label,
+            )
+            try:
+                self._speech.speak("Página adjuntada", interrupt=False)
+            except Exception:
+                pass
+
+            if result.truncated:
+                try:
+                    self._speech.speak(
+                        f"Página grande, se truncó a "
+                        f"{self._config.url_max_chars} caracteres",
+                        interrupt=False,
+                    )
+                except Exception:
+                    pass
+        else:
+            try:
+                self._speech.speak(
+                    f"Error al descargar: {result.error}", interrupt=True
+                )
+            except Exception:
+                pass
+
+    @staticmethod
+    def _derive_origin_label(url: str) -> str:
+        """Derive a human-readable origin label from a URL.
+
+        Produces ``netloc + path`` (e.g. ``example.com/docs/page``),
+        truncated to 60 characters if longer.
+
+        Args:
+            url: The URL string.
+
+        Returns:
+            Human-readable label string.
+        """
+        from urllib.parse import urlparse
+
+        parsed = urlparse(url)
+        label = f"{parsed.netloc}{parsed.path}"
+        # Remove trailing slash for cleaner look
+        if label.endswith("/"):
+            label = label[:-1]
+        if len(label) > 60:
+            label = label[:57] + "..."
+        return label
+
     def _create_status_bar(self) -> None:
         """Create status bar with 3 fields."""
         self.status_bar = self.CreateStatusBar(number=3, name="status_bar")
@@ -733,18 +882,21 @@ class MainWindow(wx.Frame):
             vision_flag = ok and (mmproj_path is not None)
             wx.CallAfter(self._on_start_server_done, ok, message, vision_flag)
 
-    def _make_announce_timer(self) -> threading.Timer:
-        """Create a chained timer that announces loading progress.
+    def _make_announce_timer(
+        self, phrase: str = "Cargando modelo, por favor espera..."
+    ) -> threading.Timer:
+        """Create a chained timer that announces a phrase every 8 seconds.
+
+        Args:
+            phrase: The text to announce each tick (default loading message).
 
         First tick fires after 8 seconds; re-arms itself every 8s.
-        Cancelled when the load worker completes.
+        Cancelled when the owning worker completes.
         """
         def _announce() -> None:
             if self._is_closing:
                 return
-            self._speech.speak(
-                "Cargando modelo, por favor espera...", interrupt=False
-            )
+            self._speech.speak(phrase, interrupt=False)
             self._loading_timer = threading.Timer(8.0, _announce)
             self._loading_timer.daemon = True
             self._loading_timer.start()
@@ -2011,6 +2163,11 @@ class MainWindow(wx.Frame):
         log.info("Aborting stream and stopping llama-server")
         self._client.abort()
         stop_server()
+
+        # Cancel any in-flight URL fetch timer
+        if self._url_fetch_timer is not None:
+            self._url_fetch_timer.cancel()
+            self._url_fetch_timer = None
 
         # Clean up temporary HTML files
         for p in self._temp_html_files:

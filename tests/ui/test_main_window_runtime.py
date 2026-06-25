@@ -502,3 +502,173 @@ class TestPersistSessionAndRecents:
                 )
             finally:
                 frame.Destroy()
+
+
+# ─── WU-2: Attach URL (Ctrl+U) ───────────────────────────────────────────────
+
+
+class TestOnAttachUrl:
+    """_on_attach_url gate, dialog opening, and validation."""
+
+    def test_attach_url_gate_during_generation(self, app):
+        """Mid-generation: speaks guard and returns without opening dialog."""
+        frame, config, _, fake_speech = _make_frame(app)
+        try:
+            frame._is_generating = True
+            with patch("bellbird.ui.main_window.URLDialog") as mock_dlg:
+                frame._on_attach_url()
+                mock_dlg.assert_not_called()
+                assert "Generación en curso" in fake_speech.last_message, (
+                    f"Expected 'Generación en curso' in speech, "
+                    f"got {fake_speech.last_message!r}"
+                )
+        finally:
+            frame.Destroy()
+
+    def test_attach_url_opens_dialog_when_idle(self, app):
+        """When idle, _on_attach_url opens URLDialog."""
+        frame, config, _, fake_speech = _make_frame(app)
+        try:
+            frame._is_generating = False
+            with patch("bellbird.ui.main_window.URLDialog") as mock_dlg:
+                mock_instance = MagicMock()
+                mock_instance.ShowModal.return_value = wx.ID_CANCEL
+                mock_instance.get_url.return_value = ""
+                mock_dlg.return_value = mock_instance
+                frame._on_attach_url()
+                mock_dlg.assert_called_once_with(frame)
+        finally:
+            frame.Destroy()
+
+    def test_attach_url_empty_url_speaks(self, app):
+        """Empty URL speaks 'URL vacía'."""
+        frame, config, _, fake_speech = _make_frame(app)
+        try:
+            frame._is_generating = False
+            with patch("bellbird.ui.main_window.URLDialog") as mock_dlg:
+                mock_instance = MagicMock()
+                mock_instance.ShowModal.return_value = wx.ID_OK
+                mock_instance.get_url.return_value = ""
+                mock_dlg.return_value = mock_instance
+                frame._on_attach_url()
+                assert "URL vacía" in fake_speech.last_message, (
+                    f"Expected 'URL vacía' in speech, "
+                    f"got {fake_speech.last_message!r}"
+                )
+        finally:
+            frame.Destroy()
+
+    def test_attach_url_invalid_scheme_speaks(self, app):
+        """Invalid scheme speaks 'Solo URLs http o https'."""
+        frame, config, _, fake_speech = _make_frame(app)
+        try:
+            frame._is_generating = False
+            with patch("bellbird.ui.main_window.URLDialog") as mock_dlg:
+                mock_instance = MagicMock()
+                mock_instance.ShowModal.return_value = wx.ID_OK
+                mock_instance.get_url.return_value = "ftp://example.com"
+                mock_dlg.return_value = mock_instance
+                frame._on_attach_url()
+                assert "Solo URLs http o https" in fake_speech.last_message, (
+                    f"Expected 'Solo URLs http o https' in speech, "
+                    f"got {fake_speech.last_message!r}"
+                )
+        finally:
+            frame.Destroy()
+
+
+class TestOnFetchComplete:
+    """_on_fetch_complete routing: success, truncation, error."""
+
+    def _make_fetch_result(self, ok=True, text="Hello", error=None,
+                           url="https://example.com", status_code=200,
+                           truncated=False, original_size=None):
+        from bellbird.core.web_fetch import FetchResult
+        return FetchResult(
+            ok=ok, text=text, error=error, url=url,
+            status_code=status_code, truncated=truncated,
+            original_size=original_size,
+        )
+
+    def test_fetch_complete_success_attaches_to_chat(self, app):
+        """Success calls chat_panel.attach_url with correct args."""
+        frame, config, _, fake_speech = _make_frame(app)
+        try:
+            result = self._make_fetch_result(text="Hello world")
+            with patch.object(frame.chat_panel, "attach_url") as mock_attach:
+                frame._on_fetch_complete(result)
+                mock_attach.assert_called_once()
+                args, kwargs = mock_attach.call_args
+                assert kwargs.get("url") == "https://example.com" or args[0] == "https://example.com"
+                assert kwargs.get("text") == "Hello world" or args[1] == "Hello world"
+        finally:
+            frame.Destroy()
+
+    def test_fetch_complete_success_speaks(self, app):
+        """Success speaks 'Página adjuntada'."""
+        frame, config, _, fake_speech = _make_frame(app)
+        try:
+            result = self._make_fetch_result()
+            frame._on_fetch_complete(result)
+            assert "Página adjuntada" in fake_speech.last_message, (
+                f"Expected 'Página adjuntada' in speech, "
+                f"got {fake_speech.last_message!r}"
+            )
+        finally:
+            frame.Destroy()
+
+    def test_fetch_complete_truncated_speaks_warning(self, app):
+        """Truncated result speaks truncation warning."""
+        frame, config, _, fake_speech = _make_frame(app)
+        try:
+            result = self._make_fetch_result(
+                truncated=True, original_size=60000,
+            )
+            frame._on_fetch_complete(result)
+            assert "se truncó" in fake_speech.last_message, (
+                f"Expected truncation warning in speech, "
+                f"got {fake_speech.last_message!r}"
+            )
+        finally:
+            frame.Destroy()
+
+    def test_fetch_complete_failure_speaks_error(self, app):
+        """Failure speaks error and does not call attach_url."""
+        frame, config, _, fake_speech = _make_frame(app)
+        try:
+            result = self._make_fetch_result(
+                ok=False, error="Timeout de conexión", status_code=None,
+            )
+            with patch.object(frame.chat_panel, "attach_url") as mock_attach:
+                frame._on_fetch_complete(result)
+                mock_attach.assert_not_called()
+                assert "Error al descargar" in fake_speech.last_message, (
+                    f"Expected 'Error al descargar' in speech, "
+                    f"got {fake_speech.last_message!r}"
+                )
+        finally:
+            frame.Destroy()
+
+    def test_fetch_complete_cancels_timer(self, app):
+        """Timer is cancelled and set to None after fetch completes."""
+        frame, config, _, fake_speech = _make_frame(app)
+        try:
+            result = self._make_fetch_result()
+            timer = MagicMock()
+            frame._url_fetch_timer = timer
+            frame._on_fetch_complete(result)
+            timer.cancel.assert_called_once()
+            assert frame._url_fetch_timer is None
+        finally:
+            frame.Destroy()
+
+    def test_fetch_complete_timer_none_no_error(self, app):
+        """When no timer was set, completion does not crash."""
+        frame, config, _, fake_speech = _make_frame(app)
+        try:
+            frame._url_fetch_timer = None
+            result = self._make_fetch_result()
+            # Must not raise
+            frame._on_fetch_complete(result)
+        finally:
+            frame.Destroy()

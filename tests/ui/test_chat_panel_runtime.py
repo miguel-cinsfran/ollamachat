@@ -121,3 +121,81 @@ class TestSelectAndAnnounce:
         panel.message_list.SetSelection(0)
         panel.select_and_announce_message(5)
         assert panel.message_list.GetSelection() == 0
+
+
+class TestAttachUrl:
+    """ChatPanel.attach_url behavior."""
+
+    def test_attach_url_sets_attached_text(self, panel):
+        """attach_url sets _attached_text to the given text."""
+        panel._attached_text = None
+        panel._attached_images = []
+        panel.attach_url("https://e.com", "Hello world", "e.com")
+        assert panel._attached_text == "Hello world", (
+            f"Expected 'Hello world', got {panel._attached_text!r}"
+        )
+
+    def test_attach_url_updates_label(self, panel):
+        """attach_url updates attachment_label with origin_label."""
+        panel._attached_text = None
+        panel._attached_images = []
+        panel.attach_url("https://e.com", "Hello", "Example (example.com)")
+        assert panel.attachment_label.GetLabel() == "Example (example.com)", (
+            f"Expected 'Example (example.com)', got "
+            f"{panel.attachment_label.GetLabel()!r}"
+        )
+
+    def test_attach_url_empty_text_noop(self, panel):
+        """Empty text does not modify _attached_text."""
+        panel._attached_text = "existing"
+        panel.attach_url("https://e.com", "", "e.com")
+        assert panel._attached_text == "existing", (
+            f"Expected 'existing' unchanged, got {panel._attached_text!r}"
+        )
+
+    def test_attach_url_replaces_image_with_speech(self, panel):
+        """When images are attached, attach_url clears them and speaks."""
+        panel._attached_images = [("base64data", "image/png")]
+        panel._attached_text = None
+
+        class FakeSpeech:
+            def __init__(self):
+                self.last_message = ""
+            def speak(self, text, interrupt=False):
+                self.last_message = text
+
+        panel._speech = FakeSpeech()
+        panel.attach_url("https://e.com", "text", "e.com")
+        assert panel._attached_images == [], (
+            f"Expected empty _attached_images, got {panel._attached_images}"
+        )
+        assert panel._attached_text == "text", (
+            f"Expected 'text', got {panel._attached_text!r}"
+        )
+        assert panel._speech.last_message == "Imagen reemplazada", (
+            f"Expected 'Imagen reemplazada', got "
+            f"{panel._speech.last_message!r}"
+        )
+
+    def test_attach_url_clears_images_no_speech_when_no_images(self, panel):
+        """When no images attached, attach_url does not speak."""
+        panel._attached_images = []
+        panel._attached_text = None
+
+        class FakeSpeech:
+            def __init__(self):
+                self.messages = []
+            def speak(self, text, interrupt=False):
+                self.messages.append(text)
+
+        panel._speech = FakeSpeech()
+        panel.attach_url("https://e.com", "text", "e.com")
+        assert panel._attached_images == [], (
+            "Expected _attached_images to remain empty"
+        )
+        assert panel._attached_text == "text", (
+            f"Expected 'text', got {panel._attached_text!r}"
+        )
+        assert "Imagen reemplazada" not in panel._speech.messages, (
+            "Should not speak 'Imagen reemplazada' when no images were attached"
+        )
