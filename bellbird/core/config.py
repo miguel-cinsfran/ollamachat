@@ -40,6 +40,7 @@ class BellbirdConfig:
     restore_last_session: bool = True
     last_session_path: str = ""
     recent_files: list[str] = field(default_factory=list)
+    url_max_chars: int = 50000
 
     def get_mmproj_for(self, model_path: str | Path) -> str | None:
         """Look up the mmproj path for a model by basename.

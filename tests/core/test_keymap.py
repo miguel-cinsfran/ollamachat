@@ -139,9 +139,10 @@ class TestDefaultKeymap:
             "edit_next",
             "regenerate",
             "find_in_history",
+            "attach_url",
         }
         assert set(DEFAULT_KEYMAP.keys()) == expected_ids
-        assert len(DEFAULT_KEYMAP) == 21
+        assert len(DEFAULT_KEYMAP) == 22
 
     def test_labels_match_spec(self):
         expected_labels = {
@@ -166,6 +167,7 @@ class TestDefaultKeymap:
             "edit_next": "Alt+Down",
             "regenerate": "Ctrl+R",
             "find_in_history": "Ctrl+F",
+            "attach_url": "Ctrl+U",
         }
         for action_id, binding in DEFAULT_KEYMAP.items():
             assert binding.label == expected_labels[action_id], (
@@ -179,6 +181,38 @@ class TestDefaultKeymap:
         assert len(combos) == len(set(combos)), (
             f"Collision detected: {len(combos)} entries but only {len(set(combos))} unique combos"
         )
+
+    def test_default_keymap_has_attach_url(self):
+        assert "attach_url" in DEFAULT_KEYMAP
+
+    def test_attach_url_binding_is_ctrl_u(self):
+        binding = DEFAULT_KEYMAP["attach_url"]
+        assert binding.modifiers == KEYMAP_MOD_CTRL
+        assert binding.keycode == ord("U")
+        assert binding.label == "Ctrl+U"
+
+    def test_default_keymap_has_22_entries(self):
+        assert len(DEFAULT_KEYMAP) == 22
+
+    def test_no_collisions_with_attach_url(self):
+        """attach_url combo does not collide with any other entry."""
+        attach = DEFAULT_KEYMAP["attach_url"]
+        attach_combo = (attach.modifiers, attach.keycode)
+        for aid, binding in DEFAULT_KEYMAP.items():
+            if aid == "attach_url":
+                continue
+            combo = (binding.modifiers, binding.keycode)
+            assert combo != attach_combo, (
+                f"attach_url {attach_combo} collides with {aid} {combo}"
+            )
+
+    def test_keymap_find_conflict_includes_attach_url(self):
+        """Keymap.find_conflict detects attach_url as a valid conflict target."""
+        km = Keymap(DEFAULT_KEYMAP)
+        # attach_url's combo should be found
+        attach = DEFAULT_KEYMAP["attach_url"]
+        result = km.find_conflict(attach.modifiers, attach.keycode)
+        assert result == "attach_url"
 
     def test_wxk_integer_values(self):
         """WXK_* integer literals match wxPython 4.2 canonical values."""
@@ -424,7 +458,7 @@ class TestAstNoWxImport:
         # This is tested by the import at the top of this file already
         # happening successfully. The test exists as a documented scenario.
         from bellbird.core.keymap import Binding, Keymap, DEFAULT_KEYMAP
-        assert len(DEFAULT_KEYMAP) == 21
+        assert len(DEFAULT_KEYMAP) == 22
 
 
 # ─── Logger warning on dropped overrides ────────────────────────────────────

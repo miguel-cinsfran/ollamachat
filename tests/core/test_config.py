@@ -562,6 +562,80 @@ def test_keymap_overrides_non_int_tuple_falls_back(monkeypatch, tmp_path):
     assert result.keymap_overrides == {}
 
 
+# ── url_max_chars (v0.8.3) ────────────────────────────────────────────────
+
+
+def test_url_max_chars_default_is_50000():
+    """GIVEN a fresh BellbirdConfig()
+    THEN url_max_chars == 50000."""
+    cfg = BellbirdConfig()
+    assert cfg.url_max_chars == 50000
+
+
+def test_url_max_chars_is_int():
+    """GIVEN a fresh BellbirdConfig()
+    WHEN reading url_max_chars
+    THEN it is an int (not a string)."""
+    cfg = BellbirdConfig()
+    assert isinstance(cfg.url_max_chars, int)
+
+
+def test_load_config_with_url_max_chars_present(monkeypatch, tmp_path):
+    """GIVEN a JSON file containing url_max_chars
+    WHEN load_config() is called
+    THEN url_max_chars is loaded with the custom value."""
+    import json
+    path = tmp_path / "config.json"
+    data = {"url_max_chars": 80000, "port": 8080}
+    path.write_text(json.dumps(data), encoding="utf-8")
+    from bellbird.core import config as config_module
+    monkeypatch.setattr(config_module, "CONFIG_PATH", path)
+    result = load_config()
+    assert result.url_max_chars == 80000
+
+
+def test_load_config_without_url_max_chars_uses_default(monkeypatch, tmp_path):
+    """GIVEN a JSON file from v0.8.2 without url_max_chars
+    WHEN load_config() is called
+    THEN url_max_chars == 50000 (default)."""
+    import json
+    path = tmp_path / "config.json"
+    data = {"port": 8080}
+    path.write_text(json.dumps(data), encoding="utf-8")
+    from bellbird.core import config as config_module
+    monkeypatch.setattr(config_module, "CONFIG_PATH", path)
+    result = load_config()
+    assert result.url_max_chars == 50000
+
+
+def test_save_config_roundtrip_url_max_chars(monkeypatch, tmp_path):
+    """GIVEN BellbirdConfig(url_max_chars=80000)
+    WHEN save_config then load_config
+    THEN url_max_chars == 80000."""
+    cfg = BellbirdConfig(url_max_chars=80000)
+    path = tmp_path / "config.json"
+    save_config(cfg, path)
+    from bellbird.core import config as config_module
+    monkeypatch.setattr(config_module, "CONFIG_PATH", path)
+    loaded = load_config()
+    assert loaded.url_max_chars == 80000
+
+
+def test_load_config_with_extra_unknown_fields_still_works_with_url_max_chars(monkeypatch, tmp_path):
+    """GIVEN a JSON file with url_max_chars AND a future_field
+    WHEN load_config() runs
+    THEN url_max_chars is loaded and future_field is silently dropped."""
+    import json
+    path = tmp_path / "config.json"
+    data = {"url_max_chars": 60000, "future_field": "x", "port": 8080}
+    path.write_text(json.dumps(data), encoding="utf-8")
+    from bellbird.core import config as config_module
+    monkeypatch.setattr(config_module, "CONFIG_PATH", path)
+    result = load_config()
+    assert result.url_max_chars == 60000
+    assert not hasattr(result, "future_field")
+
+
 # ── _MIGRATIONS regression guard ──────────────────────────────────────────
 
 
