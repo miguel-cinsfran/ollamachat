@@ -138,6 +138,7 @@ class LlamaClient:
         self._session = session or requests.Session()
         self._stop_event = threading.Event()
         self._stream_thread: threading.Thread | None = None
+        self._tool_support_cache: bool | None = None
 
     def check_running(self) -> bool:
         """Check if llama-server is running and healthy.
@@ -209,6 +210,34 @@ class LlamaClient:
             return models[0].get("id", "")
         except Exception:
             return ""
+
+    def check_tool_support(self) -> bool:
+        """Probe whether the model's template supports tool calling.
+
+        Calls ``GET /props`` once per instance and caches the result.
+        Returns ``True`` iff the response JSON has a truthy
+        ``chat_template_tool_use`` field. On any exception (network,
+        JSON decode, timeout, non-200 status) returns ``False`` without
+        raising.
+
+        Returns:
+            Cached boolean — ``True`` if tool use is supported,
+            ``False`` otherwise.
+        """
+        if self._tool_support_cache is not None:
+            return self._tool_support_cache
+        try:
+            response = self._session.get(
+                f"{self.base_url}/props", timeout=5
+            )
+            if response.status_code != 200:
+                self._tool_support_cache = False
+                return False
+            body = response.json()
+            self._tool_support_cache = bool(body.get("chat_template_tool_use", False))
+        except Exception:
+            self._tool_support_cache = False
+        return self._tool_support_cache
 
     def chat_stream(
         self,

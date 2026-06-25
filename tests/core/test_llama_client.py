@@ -959,3 +959,91 @@ def test_ast_stream_worker_does_not_call_on_token_with_reasoning_content():
         "_stream_worker must reference on_reasoning to handle "
         "reasoning_content routing"
     )
+
+
+# ─── check_tool_support (v0.7.5) ─────────────────────────────────────────────
+
+
+class TestCheckToolSupport:
+    """Tests for LlamaClient.check_tool_support()."""
+
+    def test_check_tool_support_true(self, mock_session):
+        """Given /props returns chat_template_tool_use=True, returns True."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"chat_template_tool_use": True}
+        mock_session.get.return_value = mock_response
+
+        from bellbird.core.llama_client import LlamaClient
+
+        client = LlamaClient(session=mock_session)
+        assert client.check_tool_support() is True
+        mock_session.get.assert_called_once()
+
+    def test_check_tool_support_false(self, mock_session):
+        """Given /props returns empty dict, returns False."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {}
+        mock_session.get.return_value = mock_response
+
+        from bellbird.core.llama_client import LlamaClient
+
+        client = LlamaClient(session=mock_session)
+        assert client.check_tool_support() is False
+
+    def test_check_tool_support_cached(self, mock_session):
+        """Second call does NOT make an HTTP request."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"chat_template_tool_use": True}
+        mock_session.get.return_value = mock_response
+
+        from bellbird.core.llama_client import LlamaClient
+
+        client = LlamaClient(session=mock_session)
+        assert client.check_tool_support() is True
+        assert client.check_tool_support() is True
+        # Only one HTTP call
+        mock_session.get.assert_called_once()
+
+    def test_check_tool_support_connection_error(self, mock_session):
+        """Given ConnectionError, returns False without raising."""
+        mock_session.get.side_effect = requests.ConnectionError("refused")
+
+        from bellbird.core.llama_client import LlamaClient
+
+        client = LlamaClient(session=mock_session)
+        assert client.check_tool_support() is False
+
+    def test_check_tool_support_timeout(self, mock_session):
+        """Given Timeout, returns False without raising."""
+        mock_session.get.side_effect = requests.exceptions.Timeout("timed out")
+
+        from bellbird.core.llama_client import LlamaClient
+
+        client = LlamaClient(session=mock_session)
+        assert client.check_tool_support() is False
+
+    def test_check_tool_support_non_200(self, mock_session):
+        """Given 503, returns False."""
+        mock_response = Mock()
+        mock_response.status_code = 503
+        mock_session.get.return_value = mock_response
+
+        from bellbird.core.llama_client import LlamaClient
+
+        client = LlamaClient(session=mock_session)
+        assert client.check_tool_support() is False
+
+    def test_check_tool_support_malformed_json(self, mock_session):
+        """Given non-JSON response, returns False without raising."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.side_effect = ValueError("bad json")
+        mock_session.get.return_value = mock_response
+
+        from bellbird.core.llama_client import LlamaClient
+
+        client = LlamaClient(session=mock_session)
+        assert client.check_tool_support() is False
