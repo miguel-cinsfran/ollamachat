@@ -57,3 +57,67 @@ class TestChatPanelRuntime:
         assert text == "[IA] (generando…)", (
             f"Placeholder text mismatch: {text!r}"
         )
+
+
+# ─── FakeSpeech helper ──────────────────────────────────────────────────────
+
+
+class FakeSpeech:
+    """Minimal speech stub for testing select_and_announce_message."""
+    def __init__(self):
+        self.last_message = ""
+        self.messages: list[str] = []
+
+    def speak(self, text: str, interrupt: bool = False) -> None:
+        self.last_message = text
+        self.messages.append(text)
+
+
+class TestSelectAndAnnounce:
+    """ChatPanel.select_and_announce_message selects, focuses, and speaks."""
+
+    def test_select_and_announce_sets_selection_and_focus(self, panel):
+        """GIVEN history with messages
+        WHEN select_and_announce_message with valid index
+        THEN SetSelection and SetFocus are called."""
+        panel._history = [("user", "Hola"), ("assistant", "Mundo")]
+        panel.message_list.Append("[Tú] Hola")
+        panel.message_list.Append("[IA] Mundo")
+        panel.select_and_announce_message(1)
+        assert panel.message_list.GetSelection() == 1
+        assert panel.message_list.HasFocus()
+
+    def test_select_and_announce_speaks_content(self, panel):
+        """GIVEN history with messages
+        WHEN select_and_announce_message with valid index
+        THEN speech.speak is called with the full message text."""
+        panel._history = [("user", "Hola"), ("assistant", "Mundo")]
+        panel.message_list.Append("[Tú] Hola")
+        panel.message_list.Append("[IA] Mundo")
+        panel._speech = FakeSpeech()
+        panel.select_and_announce_message(1)
+        assert panel._speech.last_message == "Mundo"
+
+    def test_select_and_announce_speech_failure_no_crash(self, panel):
+        """GIVEN speech.speak raises an exception
+        WHEN select_and_announce_message is called
+        THEN no exception propagates (never-crash contract)."""
+        class BrokenSpeech:
+            def speak(self, text, interrupt=False):
+                raise RuntimeError("TTS failure")
+
+        panel._history = [("user", "Hola")]
+        panel.message_list.Append("[Tú] Hola")
+        panel._speech = BrokenSpeech()
+        # Must not raise
+        panel.select_and_announce_message(0)
+
+    def test_select_and_announce_out_of_range_noop(self, panel):
+        """GIVEN index out of range
+        WHEN select_and_announce_message is called
+        THEN selection remains unchanged (silent no-op)."""
+        panel._history = [("user", "Hola")]
+        panel.message_list.Append("[Tú] Hola")
+        panel.message_list.SetSelection(0)
+        panel.select_and_announce_message(5)
+        assert panel.message_list.GetSelection() == 0

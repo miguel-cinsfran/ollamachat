@@ -47,10 +47,45 @@
 9971619... feat(core): add to_markdown, find_in_history, recents helpers, and find_in_history keymap
 ```
 
-### Notes for WU-2
+## WU-2a: Find feature (select_and_announce_message + FindDialog + wiring) ✅ COMPLETED
 
-- `Conversation.to_markdown()` accepts optional `system_prompt` parameter
-- `find_in_history()` uses **1-based** indexing — UI must convert ListBox 0-based to 1-based for start_index, and convert returned 1-based index back to 0-based for `SetSelection(index)`
-- `update_recents()` and `remove_from_recents()` return new lists (pure functions, no mutation)
-- `should_auto_restore(config)` checks toggle + path non-empty + file exists
-- Keymap has `find_in_history` action id with default `Ctrl+F` — no UI handler yet
+- **Date**: 2026-06-25
+- **Strategy**: single-pr (D2)
+- **Execution**: auto (A2)
+
+### Completed Tasks
+
+| Task | Status | Files Changed |
+|------|--------|---------------|
+| 2.1 ChatPanel.select_and_announce_message() | ✅ | `bellbird/ui/chat_panel.py` |
+| 2.2 FindDialog (accessible wx.Dialog) | ✅ | NEW `bellbird/ui/find_dialog.py` |
+| 2.3 Wire find_in_history accelerator in main_window | ✅ | `bellbird/ui/main_window.py` |
+| 2.4 _on_find handler (search loop) | ✅ | `bellbird/ui/main_window.py` |
+
+### Files Changed
+
+| File | Lines Added | Lines Removed |
+|------|-------------|---------------|
+| `bellbird/ui/chat_panel.py` | 62 | 0 |
+| `bellbird/ui/find_dialog.py` | NEW (117) | 0 |
+| `bellbird/ui/main_window.py` | 25 | 0 |
+| `tests/ui/test_chat_panel_runtime.py` | 83 | 0 |
+| `tests/ui/test_find_dialog.py` | NEW (126) | 0 |
+| `tests/ui/test_find_dialog_static.py` | NEW (152) | 0 |
+| `tests/ui/test_main_window_static.py` | 52 | 0 |
+| **Total** | **617** | **0** |
+
+### Tests Executed (WSL)
+
+- `tests/core/`: 238/238 ✅
+- AST/static UI: 277/277 ✅
+- `tests/smoke/`: 1/1 ✅
+- **Total**: 516/516 passed
+
+### Notes for WU-2b
+
+- `select_and_announce_message()` uses full text for speech (not preview)
+- `find_in_history()` 1-based ↔ 0-based conversion handled in `find_and_select()`
+- `FindDialog` is `wx.Dialog` with 3 native `wx.Button`s — no `wx.MessageDialog`
+- Ctrl+F handler registered in `_build_accelerators`; FindDialog shown modally; focus restored to `message_list` on close
+- WU-2b scope: Recents submenu, Exportar..., Auto-restore, run_tests.bat registration

@@ -454,6 +454,7 @@ class MainWindow(wx.Frame):
             "edit_previous": lambda: self._on_edit_previous(),
             "edit_next": lambda: self._on_edit_next(),
             "regenerate": lambda: self._on_regenerate_last(),
+            "find_in_history": lambda: self._on_find(),
         }
 
         accel_entries: list[wx.AcceleratorEntry] = []
@@ -566,6 +567,28 @@ class MainWindow(wx.Frame):
             self.use_model_button.SetFocus()
         else:
             self.restart_server_button.SetFocus()
+
+    def _on_find(self) -> None:
+        """Open FindDialog and wire up history search.
+
+        Creates a modal FindDialog. On each search action (button or
+        Enter), calls ``chat_panel.find_and_select`` with the current
+        query and direction. After closing, restores focus to the
+        message list so the user can navigate results.
+        """
+        from bellbird.ui.find_dialog import FindDialog
+
+        dlg = FindDialog(self)
+        dlg.set_on_find(
+            lambda direction: self.chat_panel.find_and_select(
+                dlg.get_query(), direction,
+            )
+        )
+        dlg.ShowModal()
+        dlg.Destroy()
+
+        # Restore focus to message list so NVDA can navigate results
+        self.chat_panel.message_list.SetFocus()
 
     def _on_f6_cycle(self) -> None:
         """Cycle focus through main panels: model selector, list, input, server row."""

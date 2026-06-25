@@ -231,6 +231,51 @@ class ChatPanel(wx.Panel):
         self.attach_button.Enable()
         self.stop_button.Disable()
 
+    # ── Search methods ────────────────────────────────────────────────────
+
+    def select_and_announce_message(self, index: int) -> None:
+        """Select, focus, and announce a message in the history list.
+
+        Args:
+            index: Zero-based index into _history. Out-of-range is a
+                silent no-op.
+        """
+        if index < 0 or index >= len(self._history):
+            return
+        self.message_list.SetSelection(index)
+        self.message_list.SetFocus()
+        try:
+            self._speech.speak(self._history[index][1], interrupt=False)
+        except Exception:
+            pass
+
+    def find_and_select(self, text: str, direction: int) -> None:
+        """Find text in history and select the matching message.
+
+        Args:
+            text: Search query. Empty string is a silent no-op.
+            direction: +1 for next match (after current), -1 for previous.
+        """
+        if not text:
+            return
+        sel = self.message_list.GetSelection()
+        if sel == wx.NOT_FOUND:
+            start_index = 0 if direction > 0 else len(self._history)
+        else:
+            start_index = sel + 1 if direction > 0 else max(0, sel - 1)
+
+        # Local import to keep core/ wx-free
+        from bellbird.core.conversation import find_in_history
+
+        idx = find_in_history(self._history, text, start_index, wrap=True)
+        if idx >= 1:
+            self.select_and_announce_message(idx - 1)
+        else:
+            try:
+                self._speech.speak("Sin coincidencias", interrupt=False)
+            except Exception:
+                pass
+
     # ── Input methods ──────────────────────────────────────────────────────
 
     def _on_input_enter(self, event: wx.CommandEvent) -> None:

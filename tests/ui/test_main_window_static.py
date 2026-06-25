@@ -2388,3 +2388,46 @@ def test_open_message_in_browser_uses_named_temporary_file() -> None:
     method_source = "\n".join(source_lines[start:end])
     assert "NamedTemporaryFile" in method_source
 
+
+def test_find_in_history_handler_registered() -> None:
+    """MainWindow._build_accelerators registers the 'find_in_history' handler.
+
+    The handler dict must contain find_in_history → _on_find, so that the
+    Ctrl+F keymap binding triggers the history search dialog.
+    """
+    from pathlib import Path
+    src = Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
+    tree = ast.parse(src)
+
+    # Find the handlers dict in _build_accelerators
+    handlers_dict = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "_build_accelerators":
+            for child in ast.walk(node):
+                if isinstance(child, ast.Dict) and any(
+                    isinstance(k, ast.Constant) and k.value == "find_in_history"
+                    for k in child.keys
+                ):
+                    handlers_dict = child
+                    break
+
+    assert handlers_dict is not None, (
+        "find_in_history key not found in the handlers dict inside "
+        "_build_accelerators"
+    )
+
+
+def test_on_find_method_exists() -> None:
+    """MainWindow has an _on_find method that handles the find action."""
+    from pathlib import Path
+    src = Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
+    tree = ast.parse(src)
+
+    found = False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "_on_find":
+            found = True
+            break
+
+    assert found, "_on_find method not found in MainWindow"
+
