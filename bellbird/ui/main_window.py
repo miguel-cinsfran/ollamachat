@@ -121,6 +121,7 @@ class MainWindow(wx.Frame):
         self._basename_to_path: dict[str, str] = {}
         self._vision_capable: bool = False
         self._tool_iteration_count: int = 0
+        self._tool_executing: bool = False
 
         # Must be defined before _build_menu() which uses them for Append() IDs.
         self.ID_START_SERVER = wx.NewIdRef()
@@ -1031,7 +1032,7 @@ class MainWindow(wx.Frame):
         text nor images are present, the message is ignored.
         """
         self._aborted = False  # Reset abort flag before each new generation
-        if self._is_generating:
+        if self._is_generating or self._tool_executing:
             self._speech.speak("Ya se está generando una respuesta", interrupt=False)
             return
 
@@ -1243,8 +1244,10 @@ class MainWindow(wx.Frame):
         self._speech.flush_token_buffer()
         self._speech.speak("Respuesta completa", interrupt=True)
 
-        # Save assistant message to conversation (including reasoning)
-        if self._current_response.strip():
+        # Save assistant message to conversation (including reasoning).
+        # Skip when a tool call is pending: _on_tool_result will save the
+        # correct assistant+tool_calls message with the full content.
+        if self._current_response.strip() and not self._tool_executing:
             self._conversation.add_message(
                 "assistant", self._current_response,
                 reasoning=self._current_reasoning,
@@ -1276,6 +1279,7 @@ class MainWindow(wx.Frame):
 
     def _on_tool_call(self, tool_name: str, tool_call_id: str, args: dict) -> None:
         """Callback cuando el modelo solicita ejecutar una herramienta."""
+        self._tool_executing = True
         command = args.get("command", str(args))
 
         if self._permission_manager.is_system_destructive(command):
@@ -1310,7 +1314,7 @@ class MainWindow(wx.Frame):
         if result == wx.ID_YES:
             self._run_tool_and_show(tool_name, tool_call_id, edited_cmd)
         elif result == wx.ID_OK:
-            self._permission_manager.grant_session(tool_name, risk)
+            self._permission_manager.grant_session(tool_name, dlg.get_risk())
             self._run_tool_and_show(tool_name, tool_call_id, edited_cmd)
         else:
             self._speech.speak("Ejecucion denegada.", interrupt=True)
@@ -1329,6 +1333,7 @@ class MainWindow(wx.Frame):
 
     def _on_tool_result(self, result, tool_call_id: str, tool_name: str = "", command: str = "") -> None:
         """Callback en hilo principal con el resultado de la herramienta."""
+        self._tool_executing = False
         log = get_logger()
         if self._aborted:
             log.info("tool cancelled by user abort")

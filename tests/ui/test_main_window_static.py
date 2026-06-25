@@ -693,6 +693,111 @@ def test_send_message_gates_on_check_tool_support() -> None:
     )
 
 
+def test_send_message_guards_on_tool_executing() -> None:
+    """send_message early-return guard also checks _tool_executing.
+
+    Prevents the user from sending a new message while a shell tool is
+    executing in the background (window between _on_done clearing
+    _is_generating and _continue_after_tool restarting it).
+    """
+    import re
+    from pathlib import Path
+    src = Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
+    m = re.search(
+        r"def send_message\(self\).*?(?=\n    def |\nclass |\Z)",
+        src, re.DOTALL,
+    )
+    assert m is not None, "send_message not found"
+    body = m.group(0)
+    assert "_tool_executing" in body, (
+        "send_message must check self._tool_executing in its early-return guard"
+    )
+
+
+def test_on_tool_call_sets_tool_executing() -> None:
+    """_on_tool_call sets _tool_executing = True as its first statement."""
+    import re
+    from pathlib import Path
+    src = Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
+    m = re.search(
+        r"def _on_tool_call\(self, tool_name.*?\) -> None:.*?"
+        r"(?=\n    def |\nclass |\Z)",
+        src, re.DOTALL,
+    )
+    assert m is not None, "_on_tool_call not found"
+    body = m.group(0)
+    assert "self._tool_executing = True" in body, (
+        "_on_tool_call must set self._tool_executing = True"
+    )
+
+
+def test_on_tool_result_clears_tool_executing() -> None:
+    """_on_tool_result clears _tool_executing = False before any guard."""
+    import re
+    from pathlib import Path
+    src = Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
+    m = re.search(
+        r"def _on_tool_result\(self, result, tool_call_id: str.*?\) -> None:.*?"
+        r"(?=\n    def |\nclass |\Z)",
+        src, re.DOTALL,
+    )
+    assert m is not None, "_on_tool_result not found"
+    body = m.group(0)
+    assert "self._tool_executing = False" in body, (
+        "_on_tool_result must reset self._tool_executing = False"
+    )
+    # Must appear before the first self._aborted check
+    false_pos = body.find("self._tool_executing = False")
+    aborted_pos = body.find("self._aborted")
+    assert false_pos < aborted_pos, (
+        "_tool_executing = False must appear before the _aborted guard in _on_tool_result"
+    )
+
+
+def test_on_done_skips_save_when_tool_executing() -> None:
+    """_on_done skips add_message for assistant when _tool_executing is True.
+
+    Prevents saving a tool-less assistant message when the stream ends with
+    finish_reason=tool_calls. _on_tool_result saves the correct message with
+    tool_calls included.
+    """
+    import re
+    from pathlib import Path
+    src = Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
+    m = re.search(
+        r"def _on_done\(self\) -> None:.*?"
+        r"(?=\n    def |\nclass |\Z)",
+        src, re.DOTALL,
+    )
+    assert m is not None, "_on_done not found"
+    body = m.group(0)
+    assert "_tool_executing" in body, (
+        "_on_done must check self._tool_executing before saving the assistant message"
+    )
+
+
+def test_grant_session_uses_get_risk() -> None:
+    """grant_session is called with dlg.get_risk(), not the original risk variable.
+
+    When the user edits a command and the risk level changes in the dialog,
+    the session grant must use the final risk, not the pre-dialog original.
+    """
+    import re
+    from pathlib import Path
+    src = Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
+    m = re.search(
+        r"def _on_tool_call\(self, tool_name.*?\) -> None:.*?"
+        r"(?=\n    def |\nclass |\Z)",
+        src, re.DOTALL,
+    )
+    assert m is not None, "_on_tool_call not found"
+    body = m.group(0)
+    assert "dlg.get_risk()" in body, (
+        "grant_session must use dlg.get_risk() so the final (possibly edited) "
+        "risk is used, not the original risk variable"
+    )
+
+
 def test_post_tool_speech_no_consultando() -> None:
     """_on_tool_result speech does NOT contain 'Consultando al modelo.'."""
     import re
@@ -1568,16 +1673,16 @@ def test_window_size_900_650():
     )
 
 
-def test_version_0_8_1():
-    """pyproject.toml has version = '0.8.1'."""
+def test_version_0_8_2():
+    """pyproject.toml has version = '0.8.2'."""
     import pathlib
     proj_path = (
         pathlib.Path(__file__).resolve().parent.parent.parent
         / "pyproject.toml"
     )
     source = proj_path.read_text(encoding="utf-8")
-    assert 'version = "0.8.1"' in source, (
-        "pyproject.toml must have version = \"0.8.1\""
+    assert 'version = "0.8.2"' in source, (
+        "pyproject.toml must have version = \"0.8.2\""
     )
 
 

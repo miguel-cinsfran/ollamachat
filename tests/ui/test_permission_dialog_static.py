@@ -319,6 +319,21 @@ def test_get_command_method_exists():
 
 
 
+def test_get_risk_method_exists():
+    """Dialog has a get_risk() public method that returns _current_risk."""
+    source_path = _get_ui_path("permission_dialog.py")
+    source = source_path.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    found = False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "get_risk":
+            found = True
+            break
+    assert found, "get_risk method not found in PermissionDialog"
+    assert "_current_risk" in source, "get_risk must return self._current_risk"
+
+
 def test_no_emoji_in_risk_labels():
     """risk_labels dict values in _build_ui are pure ASCII."""
     source_path = _get_ui_path("permission_dialog.py")
