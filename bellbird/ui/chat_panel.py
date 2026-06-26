@@ -545,22 +545,116 @@ class ChatPanel(wx.Panel):
     # ── Attachment methods (unchanged from v0.2.0) ──────────────────────────
 
     def _on_attach(self) -> None:
-        """Open file dialog and handle attachment."""
-        wildcard = (
-            "Todos los archivos (*.*)|*.*"
+        """Open file dialog and handle attachment.
+
+        Offers image/text, image folder, ZIP of images, or video.
+        Folder and ZIP use core/media.py helpers.
+        """
+        choices = [
+            "Imagen o archivo de texto",
+            "Carpeta de imágenes",
+            "ZIP de imágenes",
+            "Video (requiere ffmpeg)",
+        ]
+        dlg = wx.SingleChoiceDialog(
+            self, "¿Qué tipo de archivo adjuntar?", "Tipo de adjunto", choices
         )
+        if dlg.ShowModal() != wx.ID_OK:
+            dlg.Destroy()
+            return
+        choice_idx = dlg.GetSelection()
+        dlg.Destroy()
+
+        if choice_idx == 0:
+            self._attach_single_file()
+        elif choice_idx == 1:
+            self._attach_folder()
+        elif choice_idx == 2:
+            self._attach_zip()
+        elif choice_idx == 3:
+            self._attach_video()
+
+    def _attach_single_file(self) -> None:
         dialog = wx.FileDialog(
             self,
             message="Adjuntar archivo",
             defaultDir="",
             defaultFile="",
-            wildcard=wildcard,
+            wildcard="Todos los archivos (*.*)|*.*",
             style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST,
         )
         if dialog.ShowModal() == wx.ID_OK:
-            filepath = dialog.GetPath()
-            self.attach_file(filepath)
+            self.attach_file(dialog.GetPath())
         dialog.Destroy()
+
+    def _attach_folder(self) -> None:
+        dlg = wx.DirDialog(self, "Seleccionar carpeta de imágenes", style=wx.DD_DEFAULT_STYLE)
+        if dlg.ShowModal() != wx.ID_OK:
+            dlg.Destroy()
+            return
+        folder = dlg.GetPath()
+        dlg.Destroy()
+        self._speech.speak("Cargando imágenes de la carpeta...", interrupt=True)
+        import threading
+        def worker():
+            from bellbird.core.media import images_from_folder
+            images, err = images_from_folder(folder)
+            wx.CallAfter(self._on_media_loaded, images, err, f"Carpeta: {Path(folder).name}")
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _attach_zip(self) -> None:
+        dlg = wx.FileDialog(
+            self, "Seleccionar ZIP de imágenes", wildcard="ZIP (*.zip)|*.zip",
+            style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST,
+        )
+        if dlg.ShowModal() != wx.ID_OK:
+            dlg.Destroy()
+            return
+        zip_path = dlg.GetPath()
+        dlg.Destroy()
+        self._speech.speak("Descomprimiendo imágenes...", interrupt=True)
+        import threading
+        def worker():
+            from bellbird.core.media import images_from_zip
+            images, err = images_from_zip(zip_path)
+            wx.CallAfter(self._on_media_loaded, images, err, Path(zip_path).name)
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _attach_video(self) -> None:
+        dlg = wx.FileDialog(
+            self, "Seleccionar video",
+            wildcard="Video (*.mp4;*.avi;*.mkv;*.mov)|*.mp4;*.avi;*.mkv;*.mov",
+            style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST,
+        )
+        if dlg.ShowModal() != wx.ID_OK:
+            dlg.Destroy()
+            return
+        video_path = dlg.GetPath()
+        dlg.Destroy()
+        self._speech.speak("Extrayendo frames del video...", interrupt=True)
+        import threading
+        def worker():
+            from bellbird.core.media import keyframes_from_video
+            images, err = keyframes_from_video(video_path)
+            wx.CallAfter(self._on_media_loaded, images, err, Path(video_path).name)
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_media_loaded(
+        self, images: list, err: str | None, label: str
+    ) -> None:
+        """Called via wx.CallAfter after background media loading."""
+        if err or not images:
+            msg = err or "No se encontraron imágenes."
+            self._speech.speak(f"Error al adjuntar: {msg}", interrupt=True)
+            return
+        self._attached_images = images
+        self._attached_text = None
+        n = len(images)
+        self.attachment_label.SetLabel(f"{label} ({n} imágenes)")
+        self._speech.speak(
+            f"{n} {'imagen' if n == 1 else 'imágenes'} adjuntas desde {label}",
+            interrupt=True,
+        )
 
     def _on_clear(self) -> None:
         """Clear the conversation and attachment."""
