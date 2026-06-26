@@ -70,6 +70,9 @@ class BellbirdConfig:
     # v0.12.0: active persona (None = no-persona mode, empty system prompt)
     persona_activa: str | None = None
 
+    # v0.12.0: file tools (read_file, list_dir, write_file, edit_file)
+    file_tools_enabled: bool = False
+
     def status_toggles_as_set(self) -> set[str]:
         """Return the set of toggle names whose value is ``True``.
 

@@ -536,37 +536,24 @@ def test_continue_after_tool_method_exists():
     assert found, "_continue_after_tool method not found in MainWindow"
 
 
-def test_shell_tool_definition_at_module_level():
-    """SHELL_TOOL_DEFINITION is assigned at module level, not inside a class."""
-    source_path = _get_ui_path("main_window.py")
-    source = source_path.read_text(encoding="utf-8")
+def test_shell_tool_definition_in_catalog():
+    """SHELL_TOOL is defined in core/tool_catalog.py (moved from main_window.py)."""
+    catalog_path = (
+        pathlib.Path(__file__).resolve().parent.parent.parent
+        / "bellbird" / "core" / "tool_catalog.py"
+    )
+    source = catalog_path.read_text(encoding="utf-8")
     tree = ast.parse(source)
 
-    # Check that SHELL_TOOL_DEFINITION appears at module level (NOT inside ClassDef)
-    def _is_shell_tool_assign(node: ast.AST) -> bool:
+    def _is_shell_tool(node: ast.AST) -> bool:
         if isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Name) and target.id == "SHELL_TOOL_DEFINITION":
-                    return True
+            return any(isinstance(t, ast.Name) and t.id == "SHELL_TOOL" for t in node.targets)
+        if isinstance(node, ast.AnnAssign):
+            return isinstance(node.target, ast.Name) and node.target.id == "SHELL_TOOL"
         return False
 
-    # Find all assignments at module level
-    module_level_assign = any(
-        _is_shell_tool_assign(node) for node in tree.body
-    )
-    assert module_level_assign, (
-        "SHELL_TOOL_DEFINITION must be assigned at module level "
-        "(top of file, not inside class MainWindow)"
-    )
-
-    # Verify it's NOT inside a ClassDef
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ClassDef):
-            for item in node.body:
-                if _is_shell_tool_assign(item):
-                    assert False, (
-                        "SHELL_TOOL_DEFINITION must NOT be inside class MainWindow"
-                    )
+    found = any(_is_shell_tool(node) for node in tree.body)
+    assert found, "SHELL_TOOL must be defined at module level in core/tool_catalog.py"
 
 
 # ─── v0.4.0-ui verify v1 CRITICAL-1 regression ────────────────────────────────

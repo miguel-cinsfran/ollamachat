@@ -55,28 +55,13 @@ from bellbird.core.status_formatter import SessionSnapshot, format_status
 from bellbird.core.context_advisor import read_vram, estimate_fit, pre_send_check, PreSendSnapshot, token_count
 from bellbird.core.model_meta import read_gguf_metadata, estimate_size_bytes, GGUFMetadata
 from bellbird.core.payload import build_options, build_api_messages
-
-SHELL_TOOL_DEFINITION = {
-    "type": "function",
-    "function": {
-        "name": "shell_execute",
-        "description": (
-            "Ejecuta un comando en PowerShell en el sistema Windows del "
-            "usuario. Usa esto para operaciones de archivos, sistema, o "
-            "cuando el usuario lo pide explicitamente."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "command": {
-                    "type": "string",
-                    "description": "El comando de PowerShell a ejecutar.",
-                }
-            },
-            "required": ["command"],
-        },
-    },
-}
+from bellbird.core.tool_catalog import (
+    SHELL_TOOL,
+    FILE_TOOL_NAMES,
+    FILE_TOOL_RISK,
+    display_command,
+    get_enabled_tools,
+)
 
 
 class _NullToastSender:
@@ -1459,7 +1444,7 @@ class MainWindow(wx.Frame):
         self._speech.speak("Generando respuesta...", interrupt=True)
 
         self._tool_iteration_count = 0
-        tools = [SHELL_TOOL_DEFINITION] if self._config.tools_enabled else None
+        tools = get_enabled_tools(self._config)
         if tools and not self._client.check_tool_support():
             tools = None
             try:
@@ -1600,7 +1585,7 @@ class MainWindow(wx.Frame):
     def _on_tool_call(self, tool_name: str, tool_call_id: str, args: dict) -> None:
         """Callback cuando el modelo solicita ejecutar una herramienta."""
         self._tool_executing = True
-        command = args.get("command", str(args))
+        command = display_command(tool_name, args)
 
         if self._permission_manager.is_system_destructive(command):
             self._speech.speak(
@@ -1609,13 +1594,16 @@ class MainWindow(wx.Frame):
             self.chat_panel.append_tool_blocked(tool_name, command)
             return
 
-        risk = self._permission_manager.classify_risk(command)
+        if tool_name in FILE_TOOL_NAMES:
+            risk = FILE_TOOL_RISK[tool_name]
+        else:
+            risk = self._permission_manager.classify_risk(command)
 
         if self._permission_manager.has_session_grant(tool_name, risk):
             self._speech.speak(
                 f"Ejecutando {tool_name}: {command[:50]}", interrupt=True
             )
-            self._run_tool_and_show(tool_name, tool_call_id, command)
+            self._run_tool_and_show(tool_name, tool_call_id, command, args)
             return
 
         self._speech.speak(
@@ -1635,20 +1623,24 @@ class MainWindow(wx.Frame):
         dlg.Destroy()
 
         if result == wx.ID_YES:
-            self._run_tool_and_show(tool_name, tool_call_id, edited_cmd)
+            self._run_tool_and_show(tool_name, tool_call_id, edited_cmd, args)
         elif result == wx.ID_OK:
             self._permission_manager.grant_session(tool_name, dlg.get_risk())
-            self._run_tool_and_show(tool_name, tool_call_id, edited_cmd)
+            self._run_tool_and_show(tool_name, tool_call_id, edited_cmd, args)
         else:
             self._speech.speak("Ejecucion denegada.", interrupt=True)
             self.chat_panel.append_tool_denied(tool_name)
 
     def _run_tool_and_show(
-        self, tool_name: str, tool_call_id: str, command: str
+        self, tool_name: str, tool_call_id: str, command: str,
+        args: dict | None = None,
     ) -> None:
         """Ejecuta la tool en hilo de fondo para no bloquear la UI."""
         def worker() -> None:
-            result = self._tool_executor.run(tool_name, command)
+            if tool_name in FILE_TOOL_NAMES and args is not None:
+                result = self._tool_executor.run_file_tool(tool_name, args)
+            else:
+                result = self._tool_executor.run(tool_name, command)
             wx.CallAfter(
                 self._on_tool_result, result, tool_call_id, tool_name, command,
             )
@@ -1731,11 +1723,7 @@ class MainWindow(wx.Frame):
         self._aborted = False  # Reset abort flag before re-launching the stream
         api_messages = build_api_messages(self._config, self._conversation)
 
-        tools = (
-            [SHELL_TOOL_DEFINITION]
-            if self._config.tools_enabled
-            else None
-        )
+        tools = get_enabled_tools(self._config)
 
         self._current_response = ""
         self._current_reasoning = ""

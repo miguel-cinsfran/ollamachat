@@ -1,12 +1,15 @@
-"""ToolExecutor — headless PowerShell subprocess wrapper.
+"""ToolExecutor — headless subprocess + file-tool executor.
 
-wx-free, tested on WSL via sys.platform mocking. On non-win32 returns
-an error ToolResult immediately without invoking subprocess.
+wx-free, tested on WSL via sys.platform mocking.
+shell_execute: PowerShell only, Windows-only.
+read_file / list_dir / write_file / edit_file: platform-agnostic.
 """
 
+import os
 import subprocess
 import sys
 import threading
+from pathlib import Path
 
 
 class ToolResult:
@@ -125,6 +128,73 @@ class ToolExecutor:
         finally:
             with self._lock:
                 self._proc = None
+
+    # ── File tools (platform-agnostic) ────────────────────────────────────────
+
+    def read_file(self, path: str) -> ToolResult:
+        """Read a text file (UTF-8). Returns content or error in stdout."""
+        try:
+            content = Path(path).read_text(encoding="utf-8", errors="replace")
+            content = content[:self.MAX_OUTPUT_CHARS]
+            return ToolResult("read_file", f'read_file("{path}")', content, "", 0)
+        except Exception as e:
+            return ToolResult("read_file", f'read_file("{path}")', "", str(e), 1)
+
+    def list_dir(self, path: str) -> ToolResult:
+        """List directory contents. Returns newline-separated entries."""
+        try:
+            entries = sorted(os.listdir(path))
+            content = "\n".join(entries)[:self.MAX_OUTPUT_CHARS]
+            return ToolResult("list_dir", f'list_dir("{path}")', content, "", 0)
+        except Exception as e:
+            return ToolResult("list_dir", f'list_dir("{path}")', "", str(e), 1)
+
+    def write_file(self, path: str, content: str) -> ToolResult:
+        """Write (create or overwrite) a text file (UTF-8)."""
+        try:
+            p = Path(path)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(content, encoding="utf-8")
+            return ToolResult(
+                "write_file", f'write_file("{path}")',
+                f"Escrito: {len(content)} caracteres.", "", 0,
+            )
+        except Exception as e:
+            return ToolResult("write_file", f'write_file("{path}")', "", str(e), 1)
+
+    def edit_file(self, path: str, old_text: str, new_text: str) -> ToolResult:
+        """Replace first occurrence of old_text with new_text in a file."""
+        try:
+            p = Path(path)
+            original = p.read_text(encoding="utf-8", errors="replace")
+            if old_text not in original:
+                return ToolResult(
+                    "edit_file", f'edit_file("{path}")',
+                    "", f"old_text no encontrado en {path}.", 1,
+                )
+            modified = original.replace(old_text, new_text, 1)
+            p.write_text(modified, encoding="utf-8")
+            return ToolResult(
+                "edit_file", f'edit_file("{path}")', "Archivo editado.", "", 0,
+            )
+        except Exception as e:
+            return ToolResult("edit_file", f'edit_file("{path}")', "", str(e), 1)
+
+    def run_file_tool(self, tool_name: str, args: dict) -> ToolResult:
+        """Dispatch a file-tool call by name."""
+        if tool_name == "read_file":
+            return self.read_file(args.get("path", ""))
+        if tool_name == "list_dir":
+            return self.list_dir(args.get("path", ""))
+        if tool_name == "write_file":
+            return self.write_file(args.get("path", ""), args.get("content", ""))
+        if tool_name == "edit_file":
+            return self.edit_file(
+                args.get("path", ""),
+                args.get("old_text", ""),
+                args.get("new_text", ""),
+            )
+        return ToolResult(tool_name, str(args), "", f"Tool desconocida: {tool_name}", 1)
 
     def cancel(self) -> None:
         """Cancel the currently running tool subprocess.
