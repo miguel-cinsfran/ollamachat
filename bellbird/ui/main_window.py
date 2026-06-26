@@ -53,6 +53,7 @@ from bellbird.core.text_utils import strip_markdown
 from bellbird.core.status_formatter import SessionSnapshot, format_status
 from bellbird.core.context_advisor import read_vram, estimate_fit, pre_send_check, PreSendSnapshot, token_count
 from bellbird.core.model_meta import read_gguf_metadata, estimate_size_bytes, GGUFMetadata
+from bellbird.core.payload import build_options, build_api_messages
 
 SHELL_TOOL_DEFINITION = {
     "type": "function",
@@ -75,27 +76,6 @@ SHELL_TOOL_DEFINITION = {
         },
     },
 }
-
-
-def _build_options(config: BellbirdConfig) -> dict[str, object]:
-    """Build the sampling parameters dict with omission semantics.
-
-    min_p is always included. seed is included only when >= 0.
-    stop is included only when non-empty (copied to avoid mutation leaks).
-    """
-    options: dict[str, object] = {
-        "temperature": config.temperature,
-        "max_tokens": config.max_tokens,
-        "top_p": config.top_p,
-        "top_k": config.top_k,
-        "repeat_penalty": config.repeat_penalty,
-        "min_p": config.min_p,
-    }
-    if config.seed >= 0:
-        options["seed"] = config.seed
-    if config.stop:
-        options["stop"] = list(config.stop)
-    return options
 
 
 class _NullToastSender:
@@ -1057,44 +1037,6 @@ class MainWindow(wx.Frame):
 
     # ── Startup ────────────────────────────────────────────────────────────
 
-    def _startup_check(self) -> None:
-        """Classify server state into three states and announce."""
-        log = get_logger()
-        install_cmd = get_install_command()
-
-        if find_llama_server() is None:
-            log.warning("Startup: llama-server not installed")
-            msg = (
-                f"llama-server no instalado. Instalalo con: {install_cmd}."
-            )
-            self.status_bar.SetStatusText("llama-server no instalado", 0)
-            self._speech.speak(msg, interrupt=True)
-            wx.MessageDialog(
-                self,
-                message=msg,
-                caption="llama-server no instalado",
-                style=wx.OK | wx.ICON_WARNING,
-            ).ShowModal()
-            return
-
-        if not self._client.check_running():
-            log.info("Startup: llama-server installed but not running")
-            self.status_bar.SetStatusText("Servidor detenido", 0)
-            self._speech.speak(
-                "Servidor detenido. Selecciona un modelo y pulsa Iniciar servidor.",
-                interrupt=True,
-            )
-            return
-
-        loaded = self._client.get_loaded_model()
-        log.info(f"Startup: connected, model={loaded!r}")
-        self.status_bar.SetStatusText(f"Conectado: {loaded}", 0)
-        self._speech.speak(
-            f"Conectado. Modelo cargado: {loaded}.", interrupt=True
-        )
-        self._sync_button_state(True)
-        self._scan_models()
-
     def _start_probe_thread(self) -> None:
         """Run the startup probe on a daemon thread.
 
@@ -1395,16 +1337,8 @@ class MainWindow(wx.Frame):
                 pass  # Speech failures must never crash the send path
             attached_images = []
 
-        # Build API messages
-        api_messages = []
-
-        # System prompt (if non-empty)
-        system_prompt = self._config.system_prompt
-        if system_prompt.strip():
-            api_messages.append({"role": "system", "content": system_prompt})
-
-        # Conversation history
-        api_messages.extend(self._conversation.get_messages_for_api())
+        # Build API messages (system prompt + history; user message appended below)
+        api_messages = build_api_messages(self._config, self._conversation)
 
         # New user message
         user_msg: dict
@@ -1498,7 +1432,7 @@ class MainWindow(wx.Frame):
         self._meter_threshold_fired = False
 
         # Start generation
-        options = _build_options(self._config)
+        options = build_options(self._config)
         self._current_response = ""
         self._current_reasoning = ""
 
@@ -1784,12 +1718,7 @@ class MainWindow(wx.Frame):
             return
 
         self._aborted = False  # Reset abort flag before re-launching the stream
-        api_messages = []
-        system_prompt = self._config.system_prompt
-        if system_prompt.strip():
-            api_messages.append({"role": "system", "content": system_prompt})
-
-        api_messages.extend(self._conversation.get_messages_for_api())
+        api_messages = build_api_messages(self._config, self._conversation)
 
         tools = (
             [SHELL_TOOL_DEFINITION]
@@ -1805,7 +1734,7 @@ class MainWindow(wx.Frame):
 
         self._client.chat_stream(
             messages=api_messages,
-            options=_build_options(self._config),
+            options=build_options(self._config),
             on_token=self._on_token,
             on_done=self._on_done,
             on_error=self._on_error,
