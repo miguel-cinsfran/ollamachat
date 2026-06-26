@@ -353,3 +353,62 @@ def test_is_screen_reader_active_swallows_probe_exception(mock_auto):
     )
     speech = Speech()
     assert speech.is_screen_reader_active() is False
+
+
+# ─── speak_with_system_voice (v0.10.0) ───────────────────────────────────────
+
+
+def test_speak_with_system_voice_delegates(mock_auto):
+    """Given a working SystemVoice, speak_with_system_voice delegates."""
+    from unittest.mock import MagicMock
+
+    from bellbird.core.speech import Speech
+
+    speech = Speech()
+    mock_voice = MagicMock()
+    speech.speak_with_system_voice("hola", mock_voice)
+    mock_voice.speak.assert_called_once_with("hola")
+
+
+def test_speak_with_system_voice_never_raises(mock_auto):
+    """Given a crashy SystemVoice, speak_with_system_voice never raises."""
+    from unittest.mock import MagicMock
+
+    from bellbird.core.speech import Speech
+
+    speech = Speech()
+    mock_voice = MagicMock()
+    mock_voice.speak.side_effect = RuntimeError("SAPI crash")
+    speech.speak_with_system_voice("hola", mock_voice)  # must not raise
+
+
+def test_speak_with_system_voice_no_voice_is_noop(mock_auto):
+    """Given no SystemVoice (None), speak_with_system_voice is a no-op."""
+    from bellbird.core.speech import Speech
+
+    speech = Speech()
+    speech.speak_with_system_voice("hola", None)  # must not raise
+
+
+def test_speak_with_system_voice_empty_text(mock_auto):
+    """Given empty text, speak_with_system_voice does not call the voice."""
+    from unittest.mock import MagicMock
+
+    from bellbird.core.speech import Speech
+
+    speech = Speech()
+    mock_voice = MagicMock()
+    speech.speak_with_system_voice("", mock_voice)
+    mock_voice.speak.assert_not_called()
+
+
+def test_speak_with_system_voice_non_string_text(mock_auto):
+    """Given non-string text, speak_with_system_voice does not raise."""
+    from unittest.mock import MagicMock
+
+    from bellbird.core.speech import Speech
+
+    speech = Speech()
+    mock_voice = MagicMock()
+    speech.speak_with_system_voice(None, mock_voice)  # must not raise
+    mock_voice.speak.assert_not_called()

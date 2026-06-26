@@ -31,6 +31,7 @@ _WXK_F2 = 340
 _WXK_F5 = 343
 _WXK_F6 = 344
 _WXK_F7 = 345
+_WXK_F8 = 346
 _WXK_ESCAPE = 27
 _WXK_UP = 315
 _WXK_DOWN = 317
@@ -42,6 +43,7 @@ _KEYCODE_LABELS: dict[int, str] = {
     _WXK_F5: "F5",
     _WXK_F6: "F6",
     _WXK_F7: "F7",
+    _WXK_F8: "F8",
     _WXK_ESCAPE: "Escape",
     _WXK_UP: "Up",
     _WXK_DOWN: "Down",
@@ -292,4 +294,5 @@ DEFAULT_KEYMAP: dict[str, Binding] = {
     "regenerate": Binding(KEYMAP_MOD_CTRL, ord("R"), "Ctrl+R"),
     "find_in_history": Binding(KEYMAP_MOD_CTRL, ord("F"), "Ctrl+F"),
     "attach_url": Binding(KEYMAP_MOD_CTRL, ord("U"), "Ctrl+U"),
+    "read_selected_message": Binding(KEYMAP_MOD_NONE, _WXK_F8, "F8"),
 }

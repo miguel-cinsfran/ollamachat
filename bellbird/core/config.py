@@ -51,6 +51,14 @@ class BellbirdConfig:
     model_tunings: dict[str, dict] = field(default_factory=dict)
     pre_send_warn: bool = True
 
+    # v0.10.0: audio output (TTS + SAPI + notifications + sounds)
+    system_voice_name: str = ""
+    system_voice_rate: int = 0
+    auto_speak_responses: bool = False
+    notifications_enabled: bool = True
+    sounds_enabled: bool = True
+    sound_theme: str = "default"
+
     def status_toggles_as_set(self) -> set[str]:
         """Return the set of toggle names whose value is ``True``.
 

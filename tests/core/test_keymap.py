@@ -20,6 +20,7 @@ _WXK_F4 = 342
 _WXK_F5 = 343
 _WXK_F6 = 344
 _WXK_F7 = 345
+_WXK_F8 = 346
 _WXK_ESCAPE = 27
 _WXK_UP = 315
 _WXK_DOWN = 317
@@ -140,9 +141,10 @@ class TestDefaultKeymap:
             "regenerate",
             "find_in_history",
             "attach_url",
+            "read_selected_message",
         }
         assert set(DEFAULT_KEYMAP.keys()) == expected_ids
-        assert len(DEFAULT_KEYMAP) == 22
+        assert len(DEFAULT_KEYMAP) == 23
 
     def test_labels_match_spec(self):
         expected_labels = {
@@ -168,6 +170,7 @@ class TestDefaultKeymap:
             "regenerate": "Ctrl+R",
             "find_in_history": "Ctrl+F",
             "attach_url": "Ctrl+U",
+            "read_selected_message": "F8",
         }
         for action_id, binding in DEFAULT_KEYMAP.items():
             assert binding.label == expected_labels[action_id], (
@@ -191,8 +194,37 @@ class TestDefaultKeymap:
         assert binding.keycode == ord("U")
         assert binding.label == "Ctrl+U"
 
-    def test_default_keymap_has_22_entries(self):
-        assert len(DEFAULT_KEYMAP) == 22
+    def test_default_keymap_includes_read_selected_message(self):
+        assert "read_selected_message" in DEFAULT_KEYMAP
+
+    def test_read_selected_message_binding_is_f8(self):
+        binding = DEFAULT_KEYMAP["read_selected_message"]
+        assert binding.modifiers == KEYMAP_MOD_NONE
+        assert binding.keycode == _WXK_F8
+        assert binding.label == "F8"
+
+    def test_read_selected_message_no_collision(self):
+        """read_selected_message combo does not collide with any other entry."""
+        f8 = DEFAULT_KEYMAP["read_selected_message"]
+        f8_combo = (f8.modifiers, f8.keycode)
+        for aid, binding in DEFAULT_KEYMAP.items():
+            if aid == "read_selected_message":
+                continue
+            combo = (binding.modifiers, binding.keycode)
+            assert combo != f8_combo, (
+                f"read_selected_message {f8_combo} collides with {aid} {combo}"
+            )
+
+    def test_read_selected_message_set_override_roundtrip(self):
+        """Read_selected_message can be overridden and round-trips."""
+        km = Keymap(DEFAULT_KEYMAP)
+        km.set_override("read_selected_message", KEYMAP_MOD_CTRL | KEYMAP_MOD_SHIFT, ord("K"))
+        assert km.resolve("read_selected_message") == (KEYMAP_MOD_CTRL | KEYMAP_MOD_SHIFT, ord("K"))
+        km.remove_override("read_selected_message")
+        assert km.resolve("read_selected_message") == (KEYMAP_MOD_NONE, _WXK_F8)
+
+    def test_default_keymap_has_23_entries(self):
+        assert len(DEFAULT_KEYMAP) == 23
 
     def test_no_collisions_with_attach_url(self):
         """attach_url combo does not collide with any other entry."""
@@ -458,7 +490,7 @@ class TestAstNoWxImport:
         # This is tested by the import at the top of this file already
         # happening successfully. The test exists as a documented scenario.
         from bellbird.core.keymap import Binding, Keymap, DEFAULT_KEYMAP
-        assert len(DEFAULT_KEYMAP) == 22
+        assert len(DEFAULT_KEYMAP) == 23
 
 
 # ─── Logger warning on dropped overrides ────────────────────────────────────

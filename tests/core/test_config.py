@@ -1072,3 +1072,134 @@ def test_should_auto_restore_ok(tmp_path):
     file.write_text("{}", encoding="utf-8")
     cfg = BellbirdConfig(restore_last_session=True, last_session_path=str(file))
     assert should_auto_restore(cfg) is True
+
+
+# ─── v0.10.0: 6 new audio output fields (T-WU1 T1A) ────────────────────────
+
+
+class TestV0100AudioConfig:
+    """Tests for the 6 new BellbirdConfig audio output fields."""
+
+    def test_system_voice_name_default_empty(self):
+        """GIVEN a fresh BellbirdConfig()
+        THEN system_voice_name == ''."""
+        cfg = BellbirdConfig()
+        assert cfg.system_voice_name == ""
+
+    def test_system_voice_rate_default_zero(self):
+        """GIVEN a fresh BellbirdConfig()
+        THEN system_voice_rate == 0."""
+        cfg = BellbirdConfig()
+        assert cfg.system_voice_rate == 0
+
+    def test_auto_speak_responses_default_false(self):
+        """GIVEN a fresh BellbirdConfig()
+        THEN auto_speak_responses is False (safe default, never auto)."""
+        cfg = BellbirdConfig()
+        assert cfg.auto_speak_responses is False
+
+    def test_notifications_enabled_default_true(self):
+        """GIVEN a fresh BellbirdConfig()
+        THEN notifications_enabled is True."""
+        cfg = BellbirdConfig()
+        assert cfg.notifications_enabled is True
+
+    def test_sounds_enabled_default_true(self):
+        """GIVEN a fresh BellbirdConfig()
+        THEN sounds_enabled is True."""
+        cfg = BellbirdConfig()
+        assert cfg.sounds_enabled is True
+
+    def test_sound_theme_default_default(self):
+        """GIVEN a fresh BellbirdConfig()
+        THEN sound_theme == 'default'."""
+        cfg = BellbirdConfig()
+        assert cfg.sound_theme == "default"
+
+    def test_6_new_fields_roundtrip(self, monkeypatch, tmp_path):
+        """GIVEN BellbirdConfig with all 6 new fields set to non-default values
+        WHEN save then load
+        THEN all 6 fields round-trip."""
+        from bellbird.core import config as config_module
+
+        cfg = BellbirdConfig(
+            system_voice_name="Microsoft Helena",
+            system_voice_rate=3,
+            auto_speak_responses=True,
+            notifications_enabled=False,
+            sounds_enabled=False,
+            sound_theme="custom",
+        )
+        path = tmp_path / "config.json"
+        save_config(cfg, path)
+        monkeypatch.setattr(config_module, "CONFIG_PATH", path)
+        loaded = load_config()
+
+        assert loaded.system_voice_name == "Microsoft Helena"
+        assert loaded.system_voice_rate == 3
+        assert loaded.auto_speak_responses is True
+        assert loaded.notifications_enabled is False
+        assert loaded.sounds_enabled is False
+        assert loaded.sound_theme == "custom"
+
+    def test_missing_new_keys_from_v090_fallback_to_defaults(self, monkeypatch, tmp_path):
+        """GIVEN a v0.9.0 config.json WITHOUT the 6 new fields
+        WHEN load_config() runs
+        THEN the new fields have their documented defaults."""
+        import json
+        from bellbird.core import config as config_module
+
+        path = tmp_path / "config.json"
+        data = {"port": 8080, "temperature": 0.7}
+        path.write_text(json.dumps(data), encoding="utf-8")
+        monkeypatch.setattr(config_module, "CONFIG_PATH", path)
+        loaded = load_config()
+
+        assert loaded.system_voice_name == ""
+        assert loaded.system_voice_rate == 0
+        assert loaded.auto_speak_responses is False
+        assert loaded.notifications_enabled is True
+        assert loaded.sounds_enabled is True
+        assert loaded.sound_theme == "default"
+
+    def test_missing_6_new_keys_with_extra_unknown_field(self, monkeypatch, tmp_path):
+        """GIVEN a JSON file with extra unknown key AND the 6 new fields set
+        WHEN load_config() runs
+        THEN the new fields load AND future_field is silently dropped."""
+        import json
+        from bellbird.core import config as config_module
+
+        path = tmp_path / "config.json"
+        data = {
+            "system_voice_name": "Helena",
+            "system_voice_rate": 5,
+            "auto_speak_responses": False,
+            "notifications_enabled": True,
+            "sounds_enabled": False,
+            "sound_theme": "none",
+            "future_field": "x",
+        }
+        path.write_text(json.dumps(data), encoding="utf-8")
+        monkeypatch.setattr(config_module, "CONFIG_PATH", path)
+        loaded = load_config()
+        assert loaded.system_voice_name == "Helena"
+        assert loaded.system_voice_rate == 5
+        assert loaded.auto_speak_responses is False
+        assert loaded.notifications_enabled is True
+        assert loaded.sounds_enabled is False
+        assert loaded.sound_theme == "none"
+        assert not hasattr(loaded, "future_field")
+
+    def test_migrations_dict_unchanged_no_audio_entries(self):
+        """GIVEN the _MIGRATIONS dict
+        THEN it still has exactly one entry (max_tokens)
+        AND no entry references any of the 6 new audio fields."""
+        from bellbird.core.config import _MIGRATIONS
+        assert len(_MIGRATIONS) == 1
+        assert "max_tokens" in _MIGRATIONS
+        assert "system_voice_name" not in _MIGRATIONS
+        assert "system_voice_rate" not in _MIGRATIONS
+        assert "auto_speak_responses" not in _MIGRATIONS
+        assert "notifications_enabled" not in _MIGRATIONS
+        assert "sounds_enabled" not in _MIGRATIONS
+        assert "sound_theme" not in _MIGRATIONS

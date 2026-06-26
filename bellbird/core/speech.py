@@ -127,3 +127,26 @@ class Speech:
                 self._buffer = ""
         except Exception:
             pass
+
+    def speak_with_system_voice(self, text: str, system_voice: Any) -> None:
+        """Speak text through the system SAPI voice.
+
+        Delegates to ``SystemVoice.speak(text)`` if a voice instance
+        is provided and the text is a non-empty string.  No-op on
+        ``None`` text, empty string, or ``None`` voice.  Never raises.
+
+        This is **not** a replacement for ``speak()`` — it is an
+        additional channel for explicit user actions (F8 / button).
+
+        Args:
+            text: Plain text to speak.
+            system_voice: A ``SystemVoice`` instance, or ``None``.
+        """
+        try:
+            if system_voice is None:
+                return
+            if not isinstance(text, str) or not text:
+                return
+            system_voice.speak(text)
+        except Exception:
+            pass
