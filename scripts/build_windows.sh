@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # scripts/build_windows.sh
 #
-# Build a Windows distribution kit for OllamaChat.
+# Build a Windows distribution kit for Bellbird.
 #
 # This script runs in WSL/Linux. It does NOT build the .exe itself:
 # cross-compiling Python + wxPython from Linux to Windows is fragile
@@ -15,8 +15,8 @@
 #      dev artifacts (.venv, .pytest_cache, openspec/, data/, etc.).
 #   4. Writes a build.bat that the user runs on Windows to drive
 #      PyInstaller.
-#   5. Writes the ollamachat.spec file PyInstaller consumes.
-#   6. Zips the kit as dist/ollamachat_v<version>_<timestamp>.zip.
+#   5. Writes the bellbird.spec file PyInstaller consumes.
+#   6. Zips the kit as dist/bellbird_v<version>_<timestamp>.zip.
 #   7. Removes the build directory.
 #
 # Usage:
@@ -72,7 +72,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# --- Step 1: Run tests -----------------------------------------------------
+# --- Step 1: Run tests ----------------------------------------------------
 
 if [ "$SKIP_TESTS" -eq 0 ]; then
     log "Running tests (uv run --no-sync pytest -xvs)"
@@ -94,7 +94,7 @@ log "Project version: $VERSION"
 
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 mkdir -p "$DIST_DIR"
-BUILD_DIR="$DIST_DIR/ollamachat_v${VERSION}_${TIMESTAMP}"
+BUILD_DIR="$DIST_DIR/bellbird_v${VERSION}_${TIMESTAMP}"
 
 log "Copying project source to build directory"
 # rsync with excludes to drop dev-only artifacts
@@ -123,14 +123,19 @@ rsync -a \
 log "Writing build.bat"
 cat > "$BUILD_DIR/build.bat" <<'BAT_EOF'
 @echo off
-REM Build script for OllamaChat on Windows.
+REM Build script for Bellbird on Windows.
 REM Requires: Python 3.12+, uv, and Windows 10/11.
 REM
 REM Usage: double-click this file or run from cmd.exe: build.bat
 
 setlocal EnableDelayedExpansion
 
-echo === OllamaChat Windows build ===
+echo === Bellbird Windows build ===
+
+REM Clean previous build artifacts and cache
+if exist __pycache__ rmdir /s /q __pycache__
+if exist build rmdir /s /q build
+if exist dist rmdir /s /q dist
 
 REM Prefer uv; fall back to a venv + pip if uv is not installed.
 where uv >nul 2>nul
@@ -138,7 +143,7 @@ if not errorlevel 1 (
     echo Using uv to install dependencies...
     uv sync || goto :error
     echo Building executable with PyInstaller...
-    uv run pyinstaller ollamachat.spec --clean --noconfirm || goto :error
+    uv run pyinstaller bellbird.spec --clean --noconfirm || goto :error
 ) else (
     echo uv not found; falling back to Python venv + pip.
     echo Install uv from https://github.com/astral-sh/uv for a faster build.
@@ -156,14 +161,14 @@ if not errorlevel 1 (
     python -m pip install -r requirements.txt || goto :error
     python -m pip install pyinstaller || goto :error
     echo Building executable with PyInstaller...
-    pyinstaller ollamachat.spec --clean --noconfirm || goto :error
+    pyinstaller bellbird.spec --clean --noconfirm || goto :error
 )
 
 echo.
 echo === Build complete ===
-echo Output:  dist\ollamachat\ollamachat.exe
+echo Output:  dist\Bellbird\Bellbird.exe
 echo.
-echo To run:        dist\ollamachat\ollamachat.exe
+echo To run:  dist\Bellbird\Bellbird.exe
 
 goto :eof
 
@@ -182,14 +187,14 @@ BAT_EOF
 
 log "Writing LEEME.txt"
 cat > "$BUILD_DIR/LEEME.txt" <<LEEME_EOF
-OLLAMACHAT v${VERSION} - Instrucciones para Windows 11
-======================================================
+BELLBIRD v${VERSION} - Instrucciones para Windows 11
+=====================================================
 
 QUE HACER
 ---------
 
 1. Descomprimi este zip en una carpeta (por ejemplo, el Escritorio).
-   Se va a crear una carpeta ollamachat_v${VERSION}_${TIMESTAMP}\ con todo adentro.
+   Se va a crear una carpeta bellbird_v${VERSION}_${TIMESTAMP}\ con todo adentro.
 
 2. Asegurate de tener Python 3.12 o superior instalado.
    Si no lo tenes, bajalo de https://www.python.org/downloads/
@@ -204,7 +209,7 @@ QUE HACER
    y compilar todo. Las veces siguientes tarda segundos.
 
 5. Cuando build.bat termina, andá a la carpeta recien creada
-   dist\ollamachat\ y hace doble click en ollamachat.exe.
+   dist\Bellbird\ y hace doble click en Bellbird.exe.
 
 6. La primera vez, si Ollama no esta corriendo, te aparece un dialogo
    y la aplicacion lo anuncia por voz. Apreta el boton "Iniciar Ollama"
@@ -235,40 +240,46 @@ PROBLEMAS COMUNES
   desde el menu inicio, o hace click en "Iniciar Ollama" arriba.
 - La aplicacion se abre sin voz: instalá NVDA (gratis) o JAWS.
   accessible-output2 los detecta automaticamente.
-- Cualquier otro error: revisá el archivo data\ollamachat.log dentro
-  de la misma carpeta donde corriste el exe.
+- Cualquier otro error: revisá el archivo %LOCALAPPDATA%\\Bellbird\\data\\bellbird.log.
 
 CONTACTO
 --------
 
-- Repo de GitHub: https://github.com/miguel-cinsfran/ollamachat
+- Repo de GitHub: https://github.com/miguel-cinsfran/bellbird
 - Para reportar bugs: abrir un issue en el repo.
 LEEME_EOF
 
 # --- Step 5: Write PyInstaller spec --------------------------------------
 
-log "Writing ollamachat.spec"
-cat > "$BUILD_DIR/ollamachat.spec" <<'SPEC_EOF'
-# PyInstaller spec for OllamaChat
+log "Writing bellbird.spec"
+cat > "$BUILD_DIR/bellbird.spec" <<'SPEC_EOF'
 # -*- mode: python ; coding: utf-8 -*-
 #
-# Produces a one-folder distribution under dist/ollamachat/.
-# The exe is windowed (no console). Hidden imports cover the libraries
-# PyInstaller's static analysis sometimes misses for wxPython apps.
+# PyInstaller spec for Bellbird.
+# Produces a one-folder (onedir) distribution under dist/Bellbird/.
+# The exe is windowed (no console). Hidden imports cover libraries
+# PyInstaller's static analysis sometimes misses.
 
 block_cipher = None
 
 a = Analysis(
-    ['ollamachat/main.py'],
+    ['bellbird/main.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[
+        ('bellbird/data/sounds/default/*.wav', 'data/sounds/default'),
+    ],
     hiddenimports=[
         'wx',
-        'wx.html',
+        'wx.adv',
         'accessible_output2',
         'accessible_output2.outputs.auto',
         'requests',
+        'markdown',
+        'platformdirs',
+        'gguf',
+        'html.parser',
+        'unicodedata',
     ],
     hookspath=[],
     hooksconfig={},
@@ -292,7 +303,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='ollamachat',
+    name='Bellbird',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -312,7 +323,7 @@ coll = COLLECT(
     strip=False,
     upx=False,
     upx_exclude=[],
-    name='ollamachat',
+    name='Bellbird',
 )
 SPEC_EOF
 
@@ -322,7 +333,7 @@ SPEC_EOF
 # it under $DIST_DIR first, so the zip can reference it relatively.
 # (BUILD_DIR is already under $DIST_DIR from step 3.)
 
-ZIP_NAME="ollamachat_v${VERSION}_${TIMESTAMP}.zip"
+ZIP_NAME="bellbird_v${VERSION}_${TIMESTAMP}.zip"
 ZIP_PATH="$DIST_DIR/$ZIP_NAME"
 
 log "Creating zip: $ZIP_PATH"
@@ -364,4 +375,4 @@ log "Next steps:"
 log "  1. Move the zip to your Windows 11 machine"
 log "  2. Unzip it"
 log "  3. Open the unzipped folder and double-click build.bat"
-log "  4. When build.bat finishes, run dist\\ollamachat\\ollamachat.exe"
+log "  4. When build.bat finishes, run dist\\Bellbird\\Bellbird.exe"
