@@ -99,6 +99,8 @@ HINTS = {
     # ── Herramientas ─────────────────────────────────────────────────────
     "pref_tools_checkbox":
         "Permitir al modelo ejecutar comandos PowerShell.",
+    "pref_file_tools_checkbox":
+        "Permitir al modelo leer, listar, escribir y editar archivos de texto.",
 
     # ── Avanzado ─────────────────────────────────────────────────────────
     "pref_top_p_slider":
@@ -714,7 +716,7 @@ class PreferencesDialog(wx.Dialog):
         notebook.AddPage(panel, "&Lectura")
 
     def _build_tools_page(self, notebook: wx.Notebook) -> None:
-        """Build Herramientas tab: tools_enabled checkbox."""
+        """Build Herramientas tab: tools_enabled and file_tools_enabled checkboxes."""
         panel = wx.Panel(notebook, name="tools_page")
         sizer = wx.BoxSizer(wx.VERTICAL)
 
@@ -729,6 +731,19 @@ class PreferencesDialog(wx.Dialog):
         self._apply_hint(self.pref_tools_checkbox, "pref_tools_checkbox")
         self.pref_tools_checkbox.SetValue(self._config.tools_enabled)
         sizer.Add(self.pref_tools_checkbox,
+                  flag=wx.LEFT | wx.RIGHT | wx.BOTTOM, border=8)
+
+        sizer.Add(
+            wx.StaticText(panel, label="Arc&hivos:"),
+            flag=wx.LEFT | wx.TOP, border=8,
+        )
+        self.pref_file_tools_checkbox = wx.CheckBox(
+            panel, label="Permitir leer/listar/escr&ibir archivos",
+            name="pref_file_tools_checkbox",
+        )
+        self._apply_hint(self.pref_file_tools_checkbox, "pref_file_tools_checkbox")
+        self.pref_file_tools_checkbox.SetValue(self._config.file_tools_enabled)
+        sizer.Add(self.pref_file_tools_checkbox,
                   flag=wx.LEFT | wx.RIGHT | wx.BOTTOM, border=8)
 
         sizer.AddStretchSpacer()
@@ -1342,6 +1357,9 @@ class PreferencesDialog(wx.Dialog):
         it is set by the model-load flow (MainWindow._on_start_server_done).
         """
         self._config.system_prompt = self.pref_system_prompt.GetValue()
+        # Editing the system prompt directly detaches any active persona
+        # so persona_activa doesn't point to a mismatched prompt.
+        self._config.persona_activa = None
         self._config.temperature = self.pref_temp_slider.GetValue() / 100.0
         self._config.max_tokens = self.pref_max_tokens_spin.GetValue()
         self._config.min_p = self.pref_min_p_slider.GetValue() / 100.0
@@ -1359,6 +1377,7 @@ class PreferencesDialog(wx.Dialog):
             self.pref_confirm_new_conv.GetValue()
         )
         self._config.tools_enabled = self.pref_tools_checkbox.GetValue()
+        self._config.file_tools_enabled = self.pref_file_tools_checkbox.GetValue()
         self._config.ctx_size = self.pref_ctx_size_spin.GetValue()
         self._config.n_gpu_layers = self.pref_gpu_layers_spin.GetValue()
         self._config.port = self.pref_port_spin.GetValue()

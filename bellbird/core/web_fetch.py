@@ -14,9 +14,7 @@ from typing import Optional
 
 import requests
 
-# Bellbird version for User-Agent header.
-# TODO: read from pyproject.toml dynamically when a version import exists.
-_BELLBIRD_VERSION = "0.8.3"
+from bellbird import __version__ as _BELLBIRD_VERSION
 
 # Scheme validation: only http:// and https:// are allowed.
 _SCHEME_RE = re.compile(r"^https?://", re.IGNORECASE)

@@ -267,6 +267,9 @@ def pre_send_check(snapshot: PreSendSnapshot) -> PreSendVerdict:
                 decision="block",
                 reason_es="Contexto lleno; iniciá nueva conversación.",
             )
+        elif snapshot.warn_once:
+            # User already acknowledged the risk this conversation — allow silently.
+            return PreSendVerdict(decision="allow", reason_es="")
         else:
             return PreSendVerdict(
                 decision="warn",

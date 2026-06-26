@@ -197,6 +197,6 @@ class PermissionDialog(wx.Dialog):
         """Return the current (possibly edited) command text."""
         return self.command_text.GetValue()
 
-    def get_risk(self) -> str:
+    def get_risk(self) -> RiskLevel:
         """Return the current (possibly re-evaluated) risk level."""
         return self._current_risk
