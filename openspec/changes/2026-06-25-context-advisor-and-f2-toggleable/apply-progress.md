@@ -128,3 +128,60 @@ Ready for verify phase.
 | T-WU1-15 | N/A (commit) | ✅ | N/A |
 
 All new `core/` files follow strict TDD: tests written before implementation, verified red before green, then refactored for clarity.
+
+---
+
+## WU-2 Post-Remediation (after verify CRITICAL)
+
+### C1 fix (commit `aae74d7`)
+
+The verify agent caught a CRITICAL bug in the double-F2 state machine
+(`main_window.py:1204-1211`): the spec-mandated reset of
+`self._last_f2_mono = None` on the long-mode branch was immediately
+overridden by an unconditional `self._last_f2_mono = now` on the
+next line, so a 3rd F2 press within 1.5s of a 2nd produced "long"
+instead of the spec-required "short" cycle restart.
+
+This is exactly the v0.8.3 lessons-learned pattern: tests passing
+≠ correct code for timing-state conditions. The wx-runtime
+`TestDoubleF2` only covered 2 presses (single + double), so the
+3-press path was invisible to the test suite.
+
+**Fix**: move `self._last_f2_mono = now` into the else (short)
+branch only. Now the timestamp tracks the last "short" press, and
+any second press within 1.5s of that gets the "long" mode while
+clearing the timestamp, so a 3rd press starts a fresh "short" cycle.
+
+**Regression test added**: `test_triple_f2_starts_short_again` in
+`tests/ui/test_main_window_runtime.py::TestDoubleF2`. Skipped on
+WSL, runs on Windows via `run_tests.bat`. Verified on WSL with a
+standalone Python script that mirrors the if/else logic across 4
+scenarios (triple, double, spaced, quadruple press).
+
+### W10 fix (commit `c4e05bf`)
+
+Added `FakeSpeech.output(text)` stub to
+`tests/ui/test_main_window_runtime.py`. The production F2 handler
+calls `self._speech.output(text)` (accessible-output2 voz+braille)
+when not generating, but the test stub only had `speak()`. The
+wx-runtime test would have raised `AttributeError` on Windows.
+
+### Chore (commit `83942fe`)
+
+- `uv.lock` regenerated after adding `gguf` dep and bumping
+  bellbird version from stale 0.7.3 to 0.8.3.
+- Three force-added artifacts from the previous `attach-url`
+  change (moved to `archive/`) deleted from working tree so
+  `git status --short` is clean before archive.
+
+### Final state
+
+- 689 passed, 14 skipped (WSL).
+- 4 commits on `main`:
+  - `8a8c725` WU-1 (core+tests)
+  - `a1f9b17` WU-2 (UI+tests)
+  - `aae74d7` C1 fix + triple-press test
+  - `c4e05bf` W10 FakeSpeech.output() stub
+  - `83942fe` chore (uv.lock + archive cleanup)
+- No AI attribution in any commit.
+- Ready for archive.
