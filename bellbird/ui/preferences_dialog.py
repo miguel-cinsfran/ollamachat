@@ -18,6 +18,7 @@ from bellbird.core.keymap import (
     Keymap,
     _format_combo,
 )
+from bellbird.core.preset import ParamPreset, build_preset_from_config
 from bellbird.core.status_formatter import DEFAULT_STATUS_TOGGLES
 from bellbird.core.context_advisor import estimate_fit, read_vram
 from bellbird.core.model_meta import read_gguf_metadata, estimate_size_bytes, GGUFMetadata
@@ -26,27 +27,160 @@ from bellbird.core.model_meta import read_gguf_metadata, estimate_size_bytes, GG
 # ─── Spanish action labels (stable, one per DEFAULT_KEYMAP entry) ──────────────
 
 _ACTION_LABELS: dict[str, str] = {
-    "abort_generation": "Detener generación",
-    "announce_status": "Estado de sesión",
-    "copy_last": "Copiar último mensaje",
-    "cycle_panels": "Ciclar paneles",
-    "delete_last_exchange": "Eliminar último intercambio",
-    "edit_next": "Editar siguiente",
-    "edit_previous": "Editar anterior",
-    "exit": "Salir",
-    "focus_chat": "Enfocar chat",
-    "focus_models": "Enfocar modelos",
-    "focus_params": "Enfocar parámetros",
-    "focus_server": "Enfocar servidor",
-    "new_conversation": "Nueva conversación",
-    "open_conversation": "Abrir conversación",
-    "preferences": "Preferencias",
-    "regenerate": "Regenerar respuesta",
-    "save_conversation": "Guardar conversación",
-    "scan_models": "Buscar modelos",
-    "read_selected_message": "Leer mensaje seleccionado",
-    "start_server": "Iniciar servidor",
-    "stop_server": "Detener servidor",
+    "abort_generation": "&Detener generación",
+    "announce_status": "&Estado de sesión",
+    "copy_last": "&Copiar último mensaje",
+    "cycle_panels": "C&iclar paneles",
+    "delete_last_exchange": "E&liminar último intercambio",
+    "edit_next": "Editar s&iguiente",
+    "edit_previous": "Editar a&nterior",
+    "exit": "&Salir",
+    "focus_chat": "Enfocar cha&t",
+    "focus_models": "Enfocar &modelos",
+    "focus_params": "Enfocar &parámetros",
+    "focus_server": "Enfocar ser&vidor",
+    "new_conversation": "&Nueva conversación",
+    "open_conversation": "Abrir conve&rsación",
+    "preferences": "&Preferencias",
+    "regenerate": "&Regenerar respuesta",
+    "save_conversation": "&Guardar conversación",
+    "scan_models": "&Buscar modelos",
+    "read_selected_message": "&Leer mensaje seleccionado",
+    "start_server": "&Iniciar servidor",
+    "stop_server": "Detener servid&or",
+}
+
+
+# ─── HINTS table: tooltip + help text for every interactive control ──────────
+
+HINTS = {
+    # ── General ──────────────────────────────────────────────────────────
+    "Carpetas de modelos adicionales":
+        "Carpetas donde buscar modelos .gguf. Agregue o quite con los botones.",
+    "pref_add_folder_button":
+        "Agregar una carpeta de modelos al listado.",
+    "pref_remove_folder_button":
+        "Quitar la carpeta seleccionada del listado.",
+
+    # ── Modelo ───────────────────────────────────────────────────────────
+    "Prompt de sistema":
+        "Instrucción del sistema. Texto libre que antecede a cada mensaje.",
+    "pref_temp_slider":
+        "Temperatura del modelo. Rango: 0.00 (determinista) a 2.00 (caótico).",
+    "pref_min_p_slider":
+        "Corte de probabilidad mínima. Rango: 0.00 a 1.00.",
+    "pref_max_tokens_spin":
+        "Máximo de tokens por respuesta. Rango: 64 a 8192.",
+
+    # Presets sub-panel
+    "pref_presets_list":
+        "Lista de ajustes preestablecidos. Seleccione y aplique para cargar valores.",
+    "pref_presets_apply":
+        "Aplicar el preset seleccionado a los controles de esta pestaña.",
+    "pref_presets_save":
+        "Guardar los valores actuales como un nuevo preset.",
+    "pref_presets_delete":
+        "Borrar el preset seleccionado.",
+
+    # ── Chat ─────────────────────────────────────────────────────────────
+    "pref_confirm_new_conv":
+        "Preguntar antes de iniciar una nueva conversación.",
+
+    # ── Lectura (NEW tab) ────────────────────────────────────────────────
+    "pref_filter_markdown":
+        "Quitar formato markdown (negrita, enlaces, listas) al leer en voz alta.",
+    "pref_filter_urls":
+        "Quitar enlaces http(s) al leer en voz alta.",
+    "pref_filter_emojis":
+        "Quitar emojis al leer en voz alta.",
+    "pref_filter_code_blocks":
+        "Quitar bloques de código ```...``` al leer en voz alta.",
+
+    # ── Herramientas ─────────────────────────────────────────────────────
+    "pref_tools_checkbox":
+        "Permitir al modelo ejecutar comandos PowerShell.",
+
+    # ── Avanzado ─────────────────────────────────────────────────────────
+    "pref_top_p_slider":
+        "Probabilidad acumulativa. Rango: 0.00 a 1.00.",
+    "pref_top_k_spin":
+        "Candidatos por paso. Rango: 1 a 200.",
+    "pref_repeat_slider":
+        "Penalización de repetición. Rango: 1.00 a 2.00.",
+    "pref_seed_spin":
+        "Semilla del generador. -1 = aleatorio. Rango: -1 a 2147483647.",
+    "pref_stop_text":
+        "Cadenas de parada (una por línea). El modelo detiene la generación al emitir una.",
+    "pref_ctx_size_spin":
+        "Tamaño del contexto en tokens. Rango: 512 a 131072.",
+    "pref_gpu_layers_spin":
+        "Capas GPU (0 = CPU, 99 = todas). Rango: 0 a 200.",
+    "pref_port_spin":
+        "Puerto del servidor llama-server. Rango: 1024 a 65535.",
+
+    # ── Atajos ───────────────────────────────────────────────────────────
+    "keymap_capture_button":
+        "Abrir diálogo para capturar una nueva combinación de teclas.",
+    "keymap_reset_button":
+        "Restaurar la combinación por defecto de esta acción.",
+
+    # ── Audio ────────────────────────────────────────────────────────────
+    "pref_system_voice_choice":
+        "Voz del sistema SAPI. Seleccione y pruebe antes de usar.",
+    "pref_test_voice_button":
+        "Reproducir una frase de prueba con la voz seleccionada.",
+    "pref_select_voice_button":
+        "Abrir selector detallado de voz y velocidad.",
+    "pref_rate_slider":
+        "Velocidad de la voz del sistema. Rango: -10 a +10.",
+    "pref_auto_speak_checkbox":
+        "Leer cada respuesta automáticamente con la voz del sistema.",
+    "pref_notifications_checkbox":
+        "Activar notificaciones del sistema (Windows toast).",
+    "pref_sounds_checkbox":
+        "Activar sonidos de eventos (inicio, error, mensaje).",
+    "pref_sound_theme_choice":
+        "Tema de sonido. 'default' = sonidos. 'none' = silencio.",
+
+    # ── Estado (F2) ──────────────────────────────────────────────────────
+    "chk_model_name":
+        "Mostrar nombre del modelo en estado.",
+    "chk_context_pct":
+        "Mostrar porcentaje de contexto usado.",
+    "chk_max_tokens":
+        "Mostrar máximo de tokens por respuesta.",
+    "chk_server":
+        "Mostrar estado del servidor.",
+    "chk_vram":
+        "Mostrar VRAM libre.",
+    "chk_fit":
+        "Mostrar encaje del modelo en VRAM.",
+    "chk_message_count":
+        "Mostrar cantidad de mensajes.",
+    "chk_temperature":
+        "Mostrar temperatura activa.",
+    "chk_top_p":
+        "Mostrar Top-p activo.",
+    "chk_tok_per_s":
+        "Mostrar tokens por segundo de la última respuesta.",
+    "chk_is_generating":
+        "Mostrar si el modelo está generando.",
+
+    # ── Capture dialog ───────────────────────────────────────
+    "key_capture_accept_button":
+        "Aceptar la combinación de teclas capturada.",
+    "key_capture_cancel_button":
+        "Cancelar la captura de combinación de teclas.",
+
+    # ── Notebook ────────────────────────────────────────────────────────
+    "preferences_notebook":
+        "Panel de pestañas de preferencias. Use las teclas para navegar entre ellas.",
+
+    # ── Dialog footer ────────────────────────────────────────────────────
+    "pref_ok_button":
+        "Guardar cambios y cerrar preferencias.",
+    "pref_cancel_button":
+        "Cancelar cambios y cerrar preferencias.",
 }
 
 
@@ -299,7 +433,7 @@ class PreferencesDialog(wx.Dialog):
         self._vram_cache: tuple[int | None, int | None] = read_vram()
 
         self._build_ui()
-        self.SetSize((620, 520))
+        self.SetSize((720, 600))
         wx.CallAfter(self._focus_first_control)
 
     def _build_ui(self) -> None:
@@ -311,6 +445,7 @@ class PreferencesDialog(wx.Dialog):
         self._build_general_page(notebook)
         self._build_model_page(notebook)
         self._build_chat_page(notebook)
+        self._build_lectura_page(notebook)
         self._build_tools_page(notebook)
         self._build_advanced_page(notebook)
         self._build_keymap_page(notebook)
@@ -323,14 +458,16 @@ class PreferencesDialog(wx.Dialog):
         # ── Footer: OK / Cancel ────────────────────────────────────────
         btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
         self.ok_button = wx.Button(
-            self, id=wx.ID_OK, label="Aceptar", name="pref_ok_button",
+            self, id=wx.ID_OK, label="&Aceptar", name="pref_ok_button",
         )
+        self._apply_hint(self.ok_button, "pref_ok_button")
         self.ok_button.Bind(wx.EVT_BUTTON, self._on_ok)
         btn_sizer.Add(self.ok_button, flag=wx.RIGHT, border=4)
 
         self.cancel_button = wx.Button(
-            self, id=wx.ID_CANCEL, label="Cancelar", name="pref_cancel_button",
+            self, id=wx.ID_CANCEL, label="&Cancelar", name="pref_cancel_button",
         )
+        self._apply_hint(self.cancel_button, "pref_cancel_button")
         self.cancel_button.Bind(
             wx.EVT_BUTTON, lambda e: self.EndModal(wx.ID_CANCEL)
         )
@@ -347,7 +484,7 @@ class PreferencesDialog(wx.Dialog):
         sizer = wx.BoxSizer(wx.VERTICAL)
 
         sizer.Add(
-            wx.StaticText(panel, label="Carpetas de modelos adicionales:"),
+            wx.StaticText(panel, label="&Carpetas de modelos adicionales:"),
             flag=wx.LEFT | wx.TOP | wx.BOTTOM, border=8,
         )
 
@@ -355,21 +492,24 @@ class PreferencesDialog(wx.Dialog):
             panel, name="Carpetas de modelos adicionales",
             choices=self._config.extra_model_folders,
         )
+        self._apply_hint(self.extra_folders_list, "Carpetas de modelos adicionales")
         sizer.Add(self.extra_folders_list, proportion=1,
                   flag=wx.EXPAND | wx.LEFT | wx.RIGHT, border=8)
 
         folder_btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
 
         self.add_folder_button = wx.Button(
-            panel, label="Agregar carpeta", name="pref_add_folder_button",
+            panel, label="&Agregar carpeta", name="pref_add_folder_button",
         )
+        self._apply_hint(self.add_folder_button, "pref_add_folder_button")
         self.add_folder_button.Bind(wx.EVT_BUTTON, self._on_add_folder)
         folder_btn_sizer.Add(self.add_folder_button, flag=wx.RIGHT, border=4)
 
         self.remove_folder_button = wx.Button(
-            panel, label="Quitar seleccionada",
+            panel, label="&Quitar seleccionada",
             name="pref_remove_folder_button",
         )
+        self._apply_hint(self.remove_folder_button, "pref_remove_folder_button")
         self.remove_folder_button.Bind(
             wx.EVT_BUTTON, self._on_remove_folder
         )
@@ -379,28 +519,29 @@ class PreferencesDialog(wx.Dialog):
                   flag=wx.LEFT | wx.TOP | wx.BOTTOM, border=8)
 
         panel.SetSizer(sizer)
-        notebook.AddPage(panel, "General")
+        notebook.AddPage(panel, "&General")
 
     def _build_model_page(self, notebook: wx.Notebook) -> None:
-        """Build Modelo tab: system prompt + 2 primary samplers (temp + min_p) + max_tokens."""
+        """Build Modelo tab: system prompt + 2 primary samplers (temp + min_p) + max_tokens + presets."""
         panel = wx.Panel(notebook, name="model_page")
         sizer = wx.BoxSizer(wx.VERTICAL)
 
         # ── System prompt ──────────────────────────────────────────────
         sizer.Add(
-            wx.StaticText(panel, label="Prompt de sistema:"),
+            wx.StaticText(panel, label="&Prompt de sistema:"),
             flag=wx.LEFT | wx.TOP, border=8,
         )
         self.pref_system_prompt = wx.TextCtrl(
             panel, value=self._config.system_prompt,
             style=wx.TE_MULTILINE, size=(-1, 80), name="Prompt de sistema",
         )
+        self._apply_hint(self.pref_system_prompt, "Prompt de sistema")
         sizer.Add(self.pref_system_prompt,
                   flag=wx.EXPAND | wx.LEFT | wx.RIGHT, border=8)
 
         # ── Temperature slider ─────────────────────────────────────────
         sizer.Add(
-            wx.StaticText(panel, label="Temperatura:"),
+            wx.StaticText(panel, label="&Temperatura:"),
             flag=wx.LEFT | wx.TOP, border=8,
         )
         temp_sizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -409,6 +550,7 @@ class PreferencesDialog(wx.Dialog):
             value=int(self._config.temperature * 100),
             name="pref_temp_slider", style=wx.SL_HORIZONTAL,
         )
+        self._apply_hint(self.pref_temp_slider, "pref_temp_slider")
         self.pref_temp_label = wx.StaticText(
             panel, label=f"{self._config.temperature:.2f}",
             name="temp_value_label",
@@ -420,7 +562,7 @@ class PreferencesDialog(wx.Dialog):
 
         # ── Min-p slider ───────────────────────────────────────────────
         sizer.Add(
-            wx.StaticText(panel, label="Min-p:"),
+            wx.StaticText(panel, label="&Min-p:"),
             flag=wx.LEFT | wx.TOP, border=8,
         )
         min_p_sizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -429,6 +571,7 @@ class PreferencesDialog(wx.Dialog):
             value=int(self._config.min_p * 100),
             name="pref_min_p_slider", style=wx.SL_HORIZONTAL,
         )
+        self._apply_hint(self.pref_min_p_slider, "pref_min_p_slider")
         self.pref_min_p_label = wx.StaticText(
             panel, label=f"{self._config.min_p:.2f}",
             name="min_p_value_label",
@@ -440,7 +583,7 @@ class PreferencesDialog(wx.Dialog):
 
         # ── Max tokens ─────────────────────────────────────────────────
         sizer.Add(
-            wx.StaticText(panel, label="Máximo de tokens:"),
+            wx.StaticText(panel, label="Má&ximo de tokens:"),
             flag=wx.LEFT | wx.TOP, border=8,
         )
         self.pref_max_tokens_spin = wx.SpinCtrl(
@@ -448,12 +591,51 @@ class PreferencesDialog(wx.Dialog):
             initial=self._config.max_tokens,
             name="pref_max_tokens_spin",
         )
+        self._apply_hint(self.pref_max_tokens_spin, "pref_max_tokens_spin")
         sizer.Add(self.pref_max_tokens_spin,
                   flag=wx.LEFT | wx.RIGHT, border=8)
 
+        # ── Presets sub-panel ──────────────────────────────────────────
+        sizer.Add(
+            wx.StaticText(panel, label="&Ajustes preestablecidos:"),
+            flag=wx.LEFT | wx.TOP, border=8,
+        )
+        self.pref_presets_list = wx.ListBox(
+            panel, name="pref_presets_list",
+            choices=[p.name for p in self._config.param_presets],
+        )
+        self._apply_hint(self.pref_presets_list, "pref_presets_list")
+        sizer.Add(self.pref_presets_list,
+                  flag=wx.EXPAND | wx.LEFT | wx.RIGHT, border=8)
+
+        preset_btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        self.pref_presets_apply = wx.Button(
+            panel, label="&Aplicar", name="pref_presets_apply",
+        )
+        self._apply_hint(self.pref_presets_apply, "pref_presets_apply")
+        self.pref_presets_apply.Bind(wx.EVT_BUTTON, self._on_apply_preset)
+        preset_btn_sizer.Add(self.pref_presets_apply, flag=wx.RIGHT, border=4)
+
+        self.pref_presets_save = wx.Button(
+            panel, label="&Guardar actual como…", name="pref_presets_save",
+        )
+        self._apply_hint(self.pref_presets_save, "pref_presets_save")
+        self.pref_presets_save.Bind(wx.EVT_BUTTON, self._on_save_preset)
+        preset_btn_sizer.Add(self.pref_presets_save, flag=wx.RIGHT, border=4)
+
+        self.pref_presets_delete = wx.Button(
+            panel, label="&Borrar", name="pref_presets_delete",
+        )
+        self._apply_hint(self.pref_presets_delete, "pref_presets_delete")
+        self.pref_presets_delete.Bind(wx.EVT_BUTTON, self._on_delete_preset)
+        preset_btn_sizer.Add(self.pref_presets_delete)
+
+        sizer.Add(preset_btn_sizer,
+                  flag=wx.LEFT | wx.TOP | wx.BOTTOM, border=8)
+
         sizer.AddStretchSpacer()
         panel.SetSizer(sizer)
-        notebook.AddPage(panel, "Modelo")
+        notebook.AddPage(panel, "&Modelo")
 
     def _build_chat_page(self, notebook: wx.Notebook) -> None:
         """Build Chat tab: confirm_new_conversation checkbox."""
@@ -461,13 +643,14 @@ class PreferencesDialog(wx.Dialog):
         sizer = wx.BoxSizer(wx.VERTICAL)
 
         sizer.Add(
-            wx.StaticText(panel, label="Comportamiento:"),
+            wx.StaticText(panel, label="&Comportamiento:"),
             flag=wx.LEFT | wx.TOP, border=8,
         )
         self.pref_confirm_new_conv = wx.CheckBox(
-            panel, label="Confirmar al iniciar nueva conversación",
+            panel, label="C&onfirmar al iniciar nueva conversación",
             name="pref_confirm_new_conv",
         )
+        self._apply_hint(self.pref_confirm_new_conv, "pref_confirm_new_conv")
         self.pref_confirm_new_conv.SetValue(
             self._config.confirm_new_conversation
         )
@@ -476,7 +659,59 @@ class PreferencesDialog(wx.Dialog):
 
         sizer.AddStretchSpacer()
         panel.SetSizer(sizer)
-        notebook.AddPage(panel, "Chat")
+        notebook.AddPage(panel, "C&hat")
+
+    def _build_lectura_page(self, notebook: wx.Notebook) -> None:
+        """Build Lectura tab: 4 reading-filter checkboxes."""
+        panel = wx.Panel(notebook, name="lectura_page")
+        sizer = wx.BoxSizer(wx.VERTICAL)
+
+        sizer.Add(
+            wx.StaticText(panel, label="Filtros de lectura (al leer en voz &alta con SAPI):"),
+            flag=wx.LEFT | wx.TOP | wx.BOTTOM, border=8,
+        )
+
+        self.pref_filter_markdown = wx.CheckBox(
+            panel, label="&Quitar markdown al leer",
+            name="pref_filter_markdown",
+        )
+        self.pref_filter_markdown.SetValue(self._config.filter_strip_markdown)
+        self._apply_hint(self.pref_filter_markdown, "pref_filter_markdown")
+        sizer.Add(self.pref_filter_markdown,
+                  flag=wx.LEFT | wx.RIGHT | wx.BOTTOM, border=8)
+
+        self.pref_filter_urls = wx.CheckBox(
+            panel, label="Quitar &URLs al leer",
+            name="pref_filter_urls",
+        )
+        self.pref_filter_urls.SetValue(self._config.filter_strip_urls)
+        self._apply_hint(self.pref_filter_urls, "pref_filter_urls")
+        sizer.Add(self.pref_filter_urls,
+                  flag=wx.LEFT | wx.RIGHT | wx.BOTTOM, border=8)
+
+        self.pref_filter_emojis = wx.CheckBox(
+            panel, label="Quitar &emojis al leer",
+            name="pref_filter_emojis",
+        )
+        self.pref_filter_emojis.SetValue(self._config.filter_strip_emojis)
+        self._apply_hint(self.pref_filter_emojis, "pref_filter_emojis")
+        sizer.Add(self.pref_filter_emojis,
+                  flag=wx.LEFT | wx.RIGHT | wx.BOTTOM, border=8)
+
+        self.pref_filter_code_blocks = wx.CheckBox(
+            panel, label="Quitar &bloques de código al leer",
+            name="pref_filter_code_blocks",
+        )
+        self.pref_filter_code_blocks.SetValue(
+            self._config.filter_strip_code_blocks
+        )
+        self._apply_hint(self.pref_filter_code_blocks, "pref_filter_code_blocks")
+        sizer.Add(self.pref_filter_code_blocks,
+                  flag=wx.LEFT | wx.RIGHT | wx.BOTTOM, border=8)
+
+        sizer.AddStretchSpacer()
+        panel.SetSizer(sizer)
+        notebook.AddPage(panel, "&Lectura")
 
     def _build_tools_page(self, notebook: wx.Notebook) -> None:
         """Build Herramientas tab: tools_enabled checkbox."""
@@ -484,20 +719,21 @@ class PreferencesDialog(wx.Dialog):
         sizer = wx.BoxSizer(wx.VERTICAL)
 
         sizer.Add(
-            wx.StaticText(panel, label="PowerShell:"),
+            wx.StaticText(panel, label="&PowerShell:"),
             flag=wx.LEFT | wx.TOP, border=8,
         )
         self.pref_tools_checkbox = wx.CheckBox(
-            panel, label="Permitir herramientas (PowerShell)",
+            panel, label="Permitir herramient&as (PowerShell)",
             name="pref_tools_checkbox",
         )
+        self._apply_hint(self.pref_tools_checkbox, "pref_tools_checkbox")
         self.pref_tools_checkbox.SetValue(self._config.tools_enabled)
         sizer.Add(self.pref_tools_checkbox,
                   flag=wx.LEFT | wx.RIGHT | wx.BOTTOM, border=8)
 
         sizer.AddStretchSpacer()
         panel.SetSizer(sizer)
-        notebook.AddPage(panel, "Herramientas")
+        notebook.AddPage(panel, "&Herramientas")
 
     def _build_advanced_page(self, notebook: wx.Notebook) -> None:
         """Build Avanzado tab: moved samplers + seed + stop + server fields."""
@@ -506,7 +742,7 @@ class PreferencesDialog(wx.Dialog):
 
         # ── Top-p slider (moved from Modelo) ───────────────────────────
         sizer.Add(
-            wx.StaticText(panel, label="Top-p:"),
+            wx.StaticText(panel, label="&Top-p:"),
             flag=wx.LEFT | wx.TOP, border=8,
         )
         top_p_sizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -515,6 +751,7 @@ class PreferencesDialog(wx.Dialog):
             value=int(self._config.top_p * 100),
             name="pref_top_p_slider", style=wx.SL_HORIZONTAL,
         )
+        self._apply_hint(self.pref_top_p_slider, "pref_top_p_slider")
         self.pref_top_p_label = wx.StaticText(
             panel, label=f"{self._config.top_p:.2f}",
             name="top_p_value_label",
@@ -526,7 +763,7 @@ class PreferencesDialog(wx.Dialog):
 
         # ── Top-k (moved from Modelo) ──────────────────────────────────
         sizer.Add(
-            wx.StaticText(panel, label="Top-k:"),
+            wx.StaticText(panel, label="Top-&k:"),
             flag=wx.LEFT | wx.TOP, border=8,
         )
         self.pref_top_k_spin = wx.SpinCtrl(
@@ -534,12 +771,13 @@ class PreferencesDialog(wx.Dialog):
             initial=self._config.top_k,
             name="pref_top_k_spin",
         )
+        self._apply_hint(self.pref_top_k_spin, "pref_top_k_spin")
         sizer.Add(self.pref_top_k_spin,
                   flag=wx.LEFT | wx.RIGHT, border=8)
 
         # ── Repeat penalty slider (moved from Modelo) ──────────────────
         sizer.Add(
-            wx.StaticText(panel, label="Penalización de repetición:"),
+            wx.StaticText(panel, label="&Penalización de repetición:"),
             flag=wx.LEFT | wx.TOP, border=8,
         )
         rp_sizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -548,6 +786,7 @@ class PreferencesDialog(wx.Dialog):
             value=int(self._config.repeat_penalty * 100),
             name="pref_repeat_slider", style=wx.SL_HORIZONTAL,
         )
+        self._apply_hint(self.pref_repeat_slider, "pref_repeat_slider")
         self.pref_repeat_label = wx.StaticText(
             panel, label=f"{self._config.repeat_penalty:.2f}",
             name="repeat_value_label",
@@ -559,7 +798,7 @@ class PreferencesDialog(wx.Dialog):
 
         # ── Seed spin (new) ────────────────────────────────────────────
         sizer.Add(
-            wx.StaticText(panel, label="Semilla:"),
+            wx.StaticText(panel, label="&Semilla:"),
             flag=wx.LEFT | wx.TOP, border=8,
         )
         self.pref_seed_spin = wx.SpinCtrl(
@@ -567,12 +806,13 @@ class PreferencesDialog(wx.Dialog):
             initial=self._config.seed,
             name="pref_seed_spin",
         )
+        self._apply_hint(self.pref_seed_spin, "pref_seed_spin")
         sizer.Add(self.pref_seed_spin,
                   flag=wx.LEFT | wx.RIGHT, border=8)
 
         # ── Stop text (new) ────────────────────────────────────────────
         sizer.Add(
-            wx.StaticText(panel, label="Cadenas de parada (una por línea):"),
+            wx.StaticText(panel, label="&Cadenas de parada (una por línea):"),
             flag=wx.LEFT | wx.TOP, border=8,
         )
         self.pref_stop_text = wx.TextCtrl(
@@ -580,12 +820,13 @@ class PreferencesDialog(wx.Dialog):
             style=wx.TE_MULTILINE, size=(-1, 60),
             name="pref_stop_text",
         )
+        self._apply_hint(self.pref_stop_text, "pref_stop_text")
         sizer.Add(self.pref_stop_text,
                   flag=wx.EXPAND | wx.LEFT | wx.RIGHT, border=8)
 
         # ── Context size ───────────────────────────────────────────────
         sizer.Add(
-            wx.StaticText(panel, label="Tamaño de contexto (tokens):"),
+            wx.StaticText(panel, label="Tamaño &de contexto (tokens):"),
             flag=wx.LEFT | wx.TOP, border=8,
         )
         self.pref_ctx_size_spin = wx.SpinCtrl(
@@ -593,12 +834,13 @@ class PreferencesDialog(wx.Dialog):
             initial=self._config.ctx_size,
             name="pref_ctx_size_spin",
         )
+        self._apply_hint(self.pref_ctx_size_spin, "pref_ctx_size_spin")
         sizer.Add(self.pref_ctx_size_spin,
                   flag=wx.LEFT | wx.RIGHT, border=8)
 
         # ── GPU layers ─────────────────────────────────────────────────
         sizer.Add(
-            wx.StaticText(panel, label="Capas GPU (0 = CPU, 99 = todas):"),
+            wx.StaticText(panel, label="Capas GPU (0 = CPU, 99 = t&odas):"),
             flag=wx.LEFT | wx.TOP, border=8,
         )
         self.pref_gpu_layers_spin = wx.SpinCtrl(
@@ -606,6 +848,7 @@ class PreferencesDialog(wx.Dialog):
             initial=self._config.n_gpu_layers,
             name="pref_gpu_layers_spin",
         )
+        self._apply_hint(self.pref_gpu_layers_spin, "pref_gpu_layers_spin")
         sizer.Add(self.pref_gpu_layers_spin,
                   flag=wx.LEFT | wx.RIGHT, border=8)
 
@@ -631,7 +874,7 @@ class PreferencesDialog(wx.Dialog):
 
         # ── Server port ────────────────────────────────────────────────
         sizer.Add(
-            wx.StaticText(panel, label="Puerto del servidor:"),
+            wx.StaticText(panel, label="Puerto del serv&idor:"),
             flag=wx.LEFT | wx.TOP, border=8,
         )
         self.pref_port_spin = wx.SpinCtrl(
@@ -639,6 +882,7 @@ class PreferencesDialog(wx.Dialog):
             initial=self._config.port,
             name="pref_port_spin",
         )
+        self._apply_hint(self.pref_port_spin, "pref_port_spin")
         sizer.Add(self.pref_port_spin,
                   flag=wx.LEFT | wx.RIGHT, border=8)
 
@@ -646,7 +890,7 @@ class PreferencesDialog(wx.Dialog):
         panel.SetSizer(sizer)
         # Populate the fit help with the initial estimate
         self._refresh_fit_help()
-        notebook.AddPage(panel, "Avanzado")
+        notebook.AddPage(panel, "&Avanzado")
 
     def _build_keymap_page(self, notebook: wx.Notebook) -> None:
         """Build Atajos tab: one row per DEFAULT_KEYMAP entry.
@@ -659,7 +903,7 @@ class PreferencesDialog(wx.Dialog):
         outer_sizer = wx.BoxSizer(wx.VERTICAL)
 
         outer_sizer.Add(
-            wx.StaticText(panel, label="Atajos de teclado (pulsa Cambiar para reasignar):"),
+            wx.StaticText(panel, label="&Atajos de teclado (pulsa Cambiar para reasignar):"),
             flag=wx.LEFT | wx.TOP | wx.BOTTOM, border=8,
         )
 
@@ -689,8 +933,9 @@ class PreferencesDialog(wx.Dialog):
 
             # Cambiar button
             cambiar_btn = wx.Button(
-                scroll, label="Cambiar", name="keymap_capture_button",
+                scroll, label="&Cambiar", name="keymap_capture_button",
             )
+            self._apply_hint(cambiar_btn, "keymap_capture_button")
             cambiar_btn.Bind(
                 wx.EVT_BUTTON,
                 lambda e, aid=action_id: self._on_cambiar(aid),
@@ -699,8 +944,9 @@ class PreferencesDialog(wx.Dialog):
 
             # Restablecer button
             restablecer_btn = wx.Button(
-                scroll, label="Restablecer", name="keymap_reset_button",
+                scroll, label="&Restablecer", name="keymap_reset_button",
             )
+            self._apply_hint(restablecer_btn, "keymap_reset_button")
             restablecer_btn.Bind(
                 wx.EVT_BUTTON,
                 lambda e, aid=action_id: self._on_restablecer(aid),
@@ -725,7 +971,7 @@ class PreferencesDialog(wx.Dialog):
         outer_sizer.Add(scroll, proportion=1, flag=wx.EXPAND | wx.LEFT | wx.RIGHT, border=8)
 
         panel.SetSizer(outer_sizer)
-        notebook.AddPage(panel, "Atajos")
+        notebook.AddPage(panel, "A&tajos")
 
     def _build_audio_page(self, notebook: wx.Notebook) -> None:
         """Build Audio tab: voice, rate, auto-speak, notifications, sounds.
@@ -737,17 +983,18 @@ class PreferencesDialog(wx.Dialog):
 
         # ── "Voz del sistema" group ────────────────────────────────────
         sizer.Add(
-            wx.StaticText(panel, label="Voz del sistema:"),
+            wx.StaticText(panel, label="&Voz del sistema:"),
             flag=wx.LEFT | wx.TOP, border=8,
         )
 
         sizer.Add(
-            wx.StaticText(panel, label="Voz:"),
+            wx.StaticText(panel, label="&Seleccionar voz:"),
             flag=wx.LEFT | wx.TOP, border=8,
         )
         self.pref_system_voice_choice = wx.Choice(
             panel, choices=[], name="pref_system_voice_choice",
         )
+        self._apply_hint(self.pref_system_voice_choice, "pref_system_voice_choice")
         sizer.Add(
             self.pref_system_voice_choice,
             flag=wx.EXPAND | wx.LEFT | wx.RIGHT, border=8,
@@ -755,8 +1002,9 @@ class PreferencesDialog(wx.Dialog):
 
         voice_btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
         self.pref_test_voice_button = wx.Button(
-            panel, label="Probar", name="pref_test_voice_button",
+            panel, label="&Probar", name="pref_test_voice_button",
         )
+        self._apply_hint(self.pref_test_voice_button, "pref_test_voice_button")
         self.pref_test_voice_button.Bind(
             wx.EVT_BUTTON, self._on_test_voice,
         )
@@ -765,9 +1013,10 @@ class PreferencesDialog(wx.Dialog):
         )
 
         self.pref_select_voice_button = wx.Button(
-            panel, label="Seleccionar voz...",
+            panel, label="&Seleccionar voz...",
             name="pref_select_voice_button",
         )
+        self._apply_hint(self.pref_select_voice_button, "pref_select_voice_button")
         self.pref_select_voice_button.Bind(
             wx.EVT_BUTTON, self._on_select_voice,
         )
@@ -776,7 +1025,7 @@ class PreferencesDialog(wx.Dialog):
         sizer.Add(voice_btn_sizer, flag=wx.LEFT | wx.TOP, border=8)
 
         sizer.Add(
-            wx.StaticText(panel, label="Velocidad:"),
+            wx.StaticText(panel, label="V&elocidad:"),
             flag=wx.LEFT | wx.TOP, border=8,
         )
         rate_sizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -785,6 +1034,7 @@ class PreferencesDialog(wx.Dialog):
             value=self._config.system_voice_rate,
             name="pref_rate_slider", style=wx.SL_HORIZONTAL,
         )
+        self._apply_hint(self.pref_rate_slider, "pref_rate_slider")
         self.pref_rate_label = wx.StaticText(
             panel,
             label=str(self._config.system_voice_rate),
@@ -797,14 +1047,15 @@ class PreferencesDialog(wx.Dialog):
 
         # ── "Lectura automática" group ─────────────────────────────────
         sizer.Add(
-            wx.StaticText(panel, label="Lectura automática:"),
+            wx.StaticText(panel, label="&Lectura automática:"),
             flag=wx.LEFT | wx.TOP, border=8,
         )
         self.pref_auto_speak_checkbox = wx.CheckBox(
             panel,
-            label="Leer respuestas automáticamente con la voz del sistema",
+            label="Leer res&puestas automáticamente con la voz del sistema",
             name="pref_auto_speak_checkbox",
         )
+        self._apply_hint(self.pref_auto_speak_checkbox, "pref_auto_speak_checkbox")
         self.pref_auto_speak_checkbox.SetValue(
             self._config.auto_speak_responses,
         )
@@ -815,13 +1066,14 @@ class PreferencesDialog(wx.Dialog):
 
         # ── "Notificaciones" group ─────────────────────────────────────
         sizer.Add(
-            wx.StaticText(panel, label="Notificaciones:"),
+            wx.StaticText(panel, label="&Notificaciones:"),
             flag=wx.LEFT | wx.TOP, border=8,
         )
         self.pref_notifications_checkbox = wx.CheckBox(
-            panel, label="Notificaciones del sistema",
+            panel, label="Notificaciones &del sistema",
             name="pref_notifications_checkbox",
         )
+        self._apply_hint(self.pref_notifications_checkbox, "pref_notifications_checkbox")
         self.pref_notifications_checkbox.SetValue(
             self._config.notifications_enabled,
         )
@@ -831,9 +1083,10 @@ class PreferencesDialog(wx.Dialog):
         )
 
         self.pref_sounds_checkbox = wx.CheckBox(
-            panel, label="Sonidos",
+            panel, label="S&onidos",
             name="pref_sounds_checkbox",
         )
+        self._apply_hint(self.pref_sounds_checkbox, "pref_sounds_checkbox")
         self.pref_sounds_checkbox.SetValue(self._config.sounds_enabled)
         sizer.Add(
             self.pref_sounds_checkbox,
@@ -841,13 +1094,14 @@ class PreferencesDialog(wx.Dialog):
         )
 
         sizer.Add(
-            wx.StaticText(panel, label="Tema de sonido:"),
+            wx.StaticText(panel, label="&Tema de sonido:"),
             flag=wx.LEFT | wx.TOP, border=8,
         )
         self.pref_sound_theme_choice = wx.Choice(
             panel, choices=["default", "none"],
             name="pref_sound_theme_choice",
         )
+        self._apply_hint(self.pref_sound_theme_choice, "pref_sound_theme_choice")
         self.pref_sound_theme_choice.SetStringSelection(
             self._config.sound_theme,
         )
@@ -858,7 +1112,7 @@ class PreferencesDialog(wx.Dialog):
 
         sizer.AddStretchSpacer()
         panel.SetSizer(sizer)
-        notebook.AddPage(panel, "Audio")
+        notebook.AddPage(panel, "A&udio")
 
     def _build_status_page(self, notebook: wx.Notebook) -> None:
         """Build Estado (F2) tab: one CheckBox per status toggle.
@@ -872,7 +1126,7 @@ class PreferencesDialog(wx.Dialog):
 
         outer_sizer.Add(
             wx.StaticText(
-                panel, label="Componentes del estado de sesión (F2):"
+                panel, label="&Componentes del estado de sesión (F2):"
             ),
             flag=wx.LEFT | wx.TOP | wx.BOTTOM, border=8,
         )
@@ -907,6 +1161,7 @@ class PreferencesDialog(wx.Dialog):
             chk = wx.CheckBox(
                 panel, name=f"chk_{toggle_name}",
             )
+            self._apply_hint(chk, f"chk_{toggle_name}")
             chk.SetValue(self._config.status_toggles.get(toggle_name, True))
             chk.Bind(
                 wx.EVT_CHECKBOX,
@@ -1124,6 +1379,20 @@ class PreferencesDialog(wx.Dialog):
             self.pref_sound_theme_choice.GetStringSelection()
         )
 
+        # v0.11.0: TTS reading filters (Lectura tab)
+        self._config.filter_strip_markdown = (
+            self.pref_filter_markdown.GetValue()
+        )
+        self._config.filter_strip_urls = (
+            self.pref_filter_urls.GetValue()
+        )
+        self._config.filter_strip_emojis = (
+            self.pref_filter_emojis.GetValue()
+        )
+        self._config.filter_strip_code_blocks = (
+            self.pref_filter_code_blocks.GetValue()
+        )
+
         # Save per-model tunings (T-WU2-07)
         model_path = self._config.last_model
         if model_path:
@@ -1133,6 +1402,84 @@ class PreferencesDialog(wx.Dialog):
                 "n_gpu_layers": self._config.n_gpu_layers,
                 "threads": None,
             }
+
+    def _apply_hint(self, control: wx.Window, hint_key: str) -> None:
+        """Set both SetToolTip and SetHelpText from HINTS[hint_key].
+        Never raises (try/except if key missing)."""
+        try:
+            text = HINTS[hint_key]
+            control.SetToolTip(text)
+            control.SetHelpText(text)
+        except Exception:
+            pass
+
+    # ── Preset handlers ──────────────────────────────────────────────────────
+
+    def _on_apply_preset(self, event: wx.CommandEvent) -> None:
+        """Read the listbox selection, look up the preset, apply to controls."""
+        sel = self.pref_presets_list.GetSelection()
+        if sel == wx.NOT_FOUND:
+            return
+        name = self.pref_presets_list.GetString(sel)
+        for preset in self._config.param_presets:
+            if preset.name == name:
+                self._apply_preset_to_controls(preset)
+                if self._speech is not None:
+                    self._speech.speak(f"Aplicado {name}", interrupt=False)
+                return
+
+    def _on_save_preset(self, event: wx.CommandEvent) -> None:
+        """Open wx.TextEntryDialog, validate name, append to param_presets."""
+        dlg = wx.TextEntryDialog(
+            self, "Nombre del preset:", "Guardar preset",
+        )
+        if dlg.ShowModal() != wx.ID_OK:
+            dlg.Destroy()
+            return
+        name = dlg.GetValue().strip()
+        dlg.Destroy()
+        if not name:
+            if self._speech is not None:
+                self._speech.speak("Nombre vacío", interrupt=False)
+            return
+        # Check for duplicate
+        for p in self._config.param_presets:
+            if p.name == name:
+                if self._speech is not None:
+                    self._speech.speak("Ya existe", interrupt=False)
+                return
+        new_preset = build_preset_from_config(name, self._config)
+        self._config.param_presets.append(new_preset)
+        self.pref_presets_list.Append(name)
+        if self._speech is not None:
+            self._speech.speak("Guardado", interrupt=False)
+
+    def _on_delete_preset(self, event: wx.CommandEvent) -> None:
+        """Remove the selected preset from param_presets and the listbox."""
+        sel = self.pref_presets_list.GetSelection()
+        if sel == wx.NOT_FOUND:
+            return
+        name = self.pref_presets_list.GetString(sel)
+        self._config.param_presets = [
+            p for p in self._config.param_presets if p.name != name
+        ]
+        self.pref_presets_list.Delete(sel)
+        if self._speech is not None:
+            self._speech.speak("Borrado", interrupt=False)
+
+    def _apply_preset_to_controls(self, preset: ParamPreset) -> None:
+        """Write preset sampler values to the 7 slider/spin widgets."""
+        self.pref_temp_slider.SetValue(int(preset.temperature * 100))
+        self.pref_temp_label.SetLabel(f"{preset.temperature:.2f}")
+        self.pref_min_p_slider.SetValue(int(preset.min_p * 100))
+        self.pref_min_p_label.SetLabel(f"{preset.min_p:.2f}")
+        self.pref_max_tokens_spin.SetValue(preset.max_tokens)
+        self.pref_top_p_slider.SetValue(int(preset.top_p * 100))
+        self.pref_top_p_label.SetLabel(f"{preset.top_p:.2f}")
+        self.pref_top_k_spin.SetValue(preset.top_k)
+        self.pref_repeat_slider.SetValue(int(preset.repeat_penalty * 100))
+        self.pref_repeat_label.SetLabel(f"{preset.repeat_penalty:.2f}")
+        self.pref_seed_spin.SetValue(preset.seed)
 
     def get_config(self) -> BellbirdConfig:
         """Return the (possibly edited) config copy.
