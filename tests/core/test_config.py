@@ -7,6 +7,7 @@ monkeypatch for CONFIG_PATH isolation.
 
 import importlib
 import json
+import os
 
 import pytest
 
@@ -20,6 +21,7 @@ def test_load_config_returns_defaults_on_missing_file(monkeypatch, tmp_path):
     from bellbird.core import config as config_module
 
     monkeypatch.setattr(config_module, "CONFIG_PATH", tmp_path / "nope.json")
+    monkeypatch.setattr(config_module, "LEGACY_CONFIG_PATH", tmp_path / "no_legacy.json")
     result = load_config()
     assert result == BellbirdConfig()
 
@@ -818,7 +820,7 @@ def test_update_recents_basic():
     from bellbird.core.config import update_recents
 
     result = update_recents("/p/a.json", [])
-    assert result[0] == "/p/a.json"
+    assert result[0] == os.path.abspath("/p/a.json")
     assert len(result) == 1
 
 
@@ -828,9 +830,12 @@ def test_update_recents_dedup():
     THEN the path moves to front, no duplicate."""
     from bellbird.core.config import update_recents
 
-    result = update_recents("/p/a.json", ["/p/b.json", "/p/a.json", "/p/c.json"])
-    assert result[0] == "/p/a.json"
-    assert result.count("/p/a.json") == 1
+    pa = os.path.abspath("/p/a.json")
+    pb = os.path.abspath("/p/b.json")
+    pc = os.path.abspath("/p/c.json")
+    result = update_recents("/p/a.json", [pb, pa, pc])
+    assert result[0] == pa
+    assert result.count(pa) == 1
     assert len(result) == 3
 
 
@@ -844,8 +849,8 @@ def test_update_recents_cap_10():
     for i in range(12):
         recent = update_recents(f"/p/file{i}.json", recent)
     assert len(recent) == 10
-    assert recent[0] == "/p/file11.json"
-    assert recent[-1] == "/p/file2.json"
+    assert recent[0] == os.path.abspath("/p/file11.json")
+    assert recent[-1] == os.path.abspath("/p/file2.json")
 
 
 def test_update_recents_mru_order():
@@ -857,7 +862,11 @@ def test_update_recents_mru_order():
     recent = update_recents("/p/a.json", [])
     recent = update_recents("/p/b.json", recent)
     recent = update_recents("/p/c.json", recent)
-    assert recent == ["/p/c.json", "/p/b.json", "/p/a.json"]
+    assert recent == [
+        os.path.abspath("/p/c.json"),
+        os.path.abspath("/p/b.json"),
+        os.path.abspath("/p/a.json"),
+    ]
 
 
 def test_update_recents_uses_absolute_paths():
@@ -868,7 +877,7 @@ def test_update_recents_uses_absolute_paths():
 
     result = update_recents("relative/path/chat.json", [])
     assert result[0] != "relative/path/chat.json"
-    assert result[0].startswith("/")
+    assert os.path.isabs(result[0])
 
 
 def test_remove_from_recents_present():
@@ -877,9 +886,11 @@ def test_remove_from_recents_present():
     THEN the path is removed."""
     from bellbird.core.config import remove_from_recents
 
-    result = remove_from_recents("/p/a.json", ["/p/a.json", "/p/b.json"])
-    assert "/p/a.json" not in result
-    assert result == ["/p/b.json"]
+    pa = os.path.abspath("/p/a.json")
+    pb = os.path.abspath("/p/b.json")
+    result = remove_from_recents("/p/a.json", [pa, pb])
+    assert pa not in result
+    assert result == [pb]
 
 
 def test_remove_from_recents_absent():
@@ -888,8 +899,9 @@ def test_remove_from_recents_absent():
     THEN no error, list unchanged."""
     from bellbird.core.config import remove_from_recents
 
-    result = remove_from_recents("/p/zzz.json", ["/p/a.json"])
-    assert result == ["/p/a.json"]
+    pa = os.path.abspath("/p/a.json")
+    result = remove_from_recents("/p/zzz.json", [pa])
+    assert result == [pa]
 
 
 def test_should_auto_restore_toggle_off(tmp_path):

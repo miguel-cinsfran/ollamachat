@@ -130,7 +130,7 @@ def estimate_fit(
     kv_mb = (ctx_size / 1024) * _KV_MB_PER_1K
     total_needed = size_mb + kv_mb
 
-    gb = lambda b: f"{b / 1024:.1f}" if b >= 1024 else f"{b:.0f}"
+    gb = lambda b: f"{b / 1024:.1f}"
 
     if total_needed <= vram_free_mb:
         return FitReport(

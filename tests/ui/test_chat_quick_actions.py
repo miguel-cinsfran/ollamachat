@@ -121,10 +121,10 @@ class TestDeleteLastExchange:
             deleted.append((index, role))
 
         app, frame, panel, speech = _make_panel(on_delete=on_delete)
-        panel._history = [
+        panel.set_history([
             ("user", "Q1"), ("assistant", "A1"),
             ("user", "Q2"), ("assistant", "A2"),
-        ]
+        ])
         panel.delete_last_exchange()
         assert len(panel._history) == 2
         assert panel._history == [("user", "Q1"), ("assistant", "A1")]
@@ -143,7 +143,7 @@ class TestDeleteLastExchange:
             deleted.append((index, role))
 
         app, frame, panel, speech = _make_panel(on_delete=on_delete)
-        panel._history = [("user", "Q1"), ("assistant", "A1"), ("user", "Q2")]
+        panel.set_history([("user", "Q1"), ("assistant", "A1"), ("user", "Q2")])
         panel.delete_last_exchange()
         assert panel._history == [("user", "Q1"), ("assistant", "A1")]
         assert len(deleted) == 1
@@ -248,7 +248,7 @@ class TestRegenerateLast:
             on_delete=on_delete,
             on_regenerate=on_regenerate,
         )
-        panel._history = [("user", "Q1"), ("assistant", "A1")]
+        panel.set_history([("user", "Q1"), ("assistant", "A1")])
         panel.regenerate_last()
         assert panel._history == [("user", "Q1")]
         assert len(deleted) == 1

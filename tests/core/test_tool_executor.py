@@ -26,8 +26,8 @@ def _make_mock_popen(
         stdout: Text that stdout.read() returns.
         stderr: Text that stderr.read() returns.
         returncode: The returncode once poll()/wait() settle.
-        wait_side_effect: If given, used as ``side_effect`` for ``wait()``.
-            If None, ``wait()`` returns ``returncode`` immediately.
+        wait_side_effect: If given, used as ``side_effect`` for ``communicate()``.
+            If None, ``communicate()`` returns ``(stdout, stderr)`` immediately.
     """
     proc = MagicMock()
     proc.stdout = MagicMock()
@@ -36,9 +36,9 @@ def _make_mock_popen(
     proc.stderr.read.return_value = stderr
     proc.returncode = returncode
     if wait_side_effect is not None:
-        proc.wait.side_effect = wait_side_effect
+        proc.communicate.side_effect = wait_side_effect
     else:
-        proc.wait.return_value = returncode
+        proc.communicate.return_value = (stdout, stderr)
     proc.poll.return_value = returncode
     return proc
 
@@ -72,6 +72,10 @@ def _tool_ctx(popen_proc: MagicMock | None = None, run_return=None):
 
 class TestToolExecutor:
     """Tests for ToolExecutor."""
+
+    def setup_method(self):
+        import bellbird.core.tool_executor as _te
+        _te._SHELL_CMD = None
 
     def test_run_nonwindows_returns_error(self):
         """Given sys.platform is linux, run returns error result without subprocess."""
@@ -146,27 +150,19 @@ class TestToolExecutor:
         assert result.stderr == "e" * 4000
 
     def test_pwsh_probe_has_creationflags_on_win32(self):
-        """Given win32, the PROBE subprocess call also uses CREATE_NO_WINDOW (BUG 3)."""
+        """Given win32, the PROBE subprocess.run call uses CREATE_NO_WINDOW (BUG 3)."""
+        import bellbird.core.tool_executor as _te
         CREATE_NO_WINDOW = 0x08000000
 
-        def run_side_effect(*args, **kwargs):
-            return MagicMock(returncode=0, stdout="", stderr="")
-
-        proc = _make_mock_popen()
-
-        with patch("sys.platform", "win32"), patch(
+        with patch(
             "bellbird.core.tool_executor.subprocess.run",
-            side_effect=run_side_effect,
-        ) as mock_run, patch(
-            "bellbird.core.tool_executor.subprocess.Popen",
-            return_value=proc,
-        ):
-            executor = ToolExecutor()
-            executor.run("shell_execute", "Get-Process")
+            return_value=MagicMock(returncode=0),
+        ) as mock_run:
+            _te._SHELL_CMD = None  # reset cache while mock is active
+            _te._get_shell()
 
-        assert mock_run.call_count >= 1
-        probe_call = mock_run.call_args_list[0]
-        kwargs = probe_call[1] if probe_call[1] else {}
+        assert mock_run.call_count == 1
+        _, kwargs = mock_run.call_args
         assert kwargs.get("creationflags") == CREATE_NO_WINDOW, (
             "CREATE_NO_WINDOW flag must be set on the PROBE subprocess call "
             "to prevent console flash on Windows (BUG 3)"
@@ -187,7 +183,6 @@ class TestToolExecutor:
             executor = ToolExecutor()
             executor.run("shell_execute", "Get-Process")
 
-        assert mock_run.call_count >= 1  # probe
         assert mock_popen.call_count == 1
         _, popen_kwargs = mock_popen.call_args
         assert popen_kwargs.get("creationflags") == CREATE_NO_WINDOW, (
@@ -197,18 +192,14 @@ class TestToolExecutor:
     # ── Popen path — timeout ────────────────────────────────────────────────
 
     def test_timeout_returns_error_result(self):
-        """Given Popen.wait() raises TimeoutExpired, returns error result (no raise)."""
+        """Given communicate() raises TimeoutExpired, returns error result (no raise)."""
         proc = MagicMock()
-        proc.stdout = MagicMock()
-        proc.stdout.read.return_value = ""
-        proc.stderr = MagicMock()
-        proc.stderr.read.return_value = ""
-        # First call raises TimeoutExpired; second call (kill+wait in handler) returns 1
-        proc.wait.side_effect = [
-            subprocess.TimeoutExpired(cmd="sleep 999", timeout=5.0),
-            1,
-        ]
         proc.poll.return_value = None
+        # First communicate() raises TimeoutExpired; second (drain after kill) succeeds
+        proc.communicate.side_effect = [
+            subprocess.TimeoutExpired(cmd="sleep 999", timeout=5.0),
+            ("", ""),
+        ]
 
         with patch("sys.platform", "win32"), patch(
             "bellbird.core.tool_executor.subprocess.run",
@@ -231,19 +222,16 @@ class TestToolExecutor:
         import threading as _threading
 
         proc = MagicMock()
-        proc.stdout = MagicMock()
-        proc.stdout.read.return_value = "partial"
-        proc.stderr = MagicMock()
-        proc.stderr.read.return_value = ""
+        proc.returncode = 0
         proc.poll.side_effect = [None, None, 0]  # alive, still alive after terminate, then dead
-        # wait blocks until terminate kills it, then returns 1
-        real_wait = [threading.Event()]
+        # communicate blocks until the process is terminated
+        real_event = threading.Event()
 
-        def wait_side(timeout=None):
-            real_wait[0].wait(timeout=5)
-            return 1
+        def communicate_side(timeout=None):
+            real_event.wait(timeout=5)
+            return ("", "")
 
-        proc.wait.side_effect = wait_side
+        proc.communicate.side_effect = communicate_side
 
         with patch("sys.platform", "win32"), patch(
             "bellbird.core.tool_executor.subprocess.run",
@@ -261,9 +249,9 @@ class TestToolExecutor:
 
             t = _threading.Thread(target=worker, daemon=True)
             t.start()
-            time.sleep(0.2)  # let run() get to wait()
+            time.sleep(0.2)  # let run() get to communicate()
             executor.cancel()
-            real_wait[0].set()  # unblock the stub wait
+            real_event.set()  # unblock communicate() (simulates process termination)
             t.join(timeout=5)
 
         assert len(results) == 1
@@ -272,18 +260,19 @@ class TestToolExecutor:
 
     def test_cancel_idempotent(self):
         """Given cancel() called twice, second call is a no-op (no crash, no double terminate)."""
-        proc = _make_mock_popen()
-        proc.poll.side_effect = [None, None, 0]  # alive, alive, dead
-
         import threading as _threading
 
-        real_wait = [threading.Event()]
+        proc = MagicMock()
+        proc.returncode = 0
+        proc.poll.side_effect = [None, None, 0]  # alive, alive, dead
 
-        def wait_side(timeout=None):
-            real_wait[0].wait(timeout=5)
-            return 1
+        real_event = threading.Event()
 
-        proc.wait.side_effect = wait_side
+        def communicate_side(timeout=None):
+            real_event.wait(timeout=5)
+            return ("", "")
+
+        proc.communicate.side_effect = communicate_side
 
         with patch("sys.platform", "win32"), patch(
             "bellbird.core.tool_executor.subprocess.run",
@@ -305,7 +294,7 @@ class TestToolExecutor:
             executor.cancel()
             # Second call must be a no-op
             executor.cancel()
-            real_wait[0].set()
+            real_event.set()
             t.join(timeout=5)
 
         assert len(results) == 1
@@ -339,36 +328,20 @@ class TestToolExecutor:
 
     def test_cancel_never_raises_on_broken_popen(self):
         """Given Popen.terminate() raises, cancel() swallows the exception."""
-        proc = MagicMock()
-        proc.poll.return_value = None
-        proc.wait.side_effect = [None]  # poll returns None initially
-        # make wait work for the second time
-        import subprocess as sp
-        proc.terminate.side_effect = OSError("access denied")
-        # cancel will terminate, then wait. We need wait to return
-        # after terminate even though terminate raised.
-        # In cancel(), after terminateException, the wait happens.
-        # Let's make wait work.
-
-        from unittest.mock import call
-
-        # wait returns 1
-        proc.wait.return_value = 1
-
         import threading as _threading
-        real_wait = [threading.Event()]
 
-        # For the main run() wait, use a blocking wait
-        run_wait_called = [False]
+        proc = MagicMock()
+        proc.returncode = 0
+        proc.poll.return_value = None
+        proc.terminate.side_effect = OSError("access denied")
 
-        def run_wait_side(timeout=None):
-            run_wait_called[0] = True
-            real_wait[0].wait(timeout=5)
-            return 1
+        real_event = threading.Event()
 
-        # run() uses proc.wait(timeout=N) then reads stdout
-        # cancel() uses proc.wait(timeout=2) then proc.wait(timeout=1)
-        proc.wait.side_effect = run_wait_side
+        def communicate_side(timeout=None):
+            real_event.wait(timeout=5)
+            return ("", "")
+
+        proc.communicate.side_effect = communicate_side
 
         with patch("sys.platform", "win32"), patch(
             "bellbird.core.tool_executor.subprocess.run",
@@ -388,7 +361,7 @@ class TestToolExecutor:
             t.start()
             time.sleep(0.3)
             executor.cancel()
-            real_wait[0].set()
+            real_event.set()
             t.join(timeout=5)
 
         assert len(results) == 1

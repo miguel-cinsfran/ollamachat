@@ -56,6 +56,26 @@ class ToolResult:
         }
 
 
+# Cached shell command: detected once per process, avoids ~0.5s probe on every tool call.
+_SHELL_CMD: str | None = None
+
+
+def _get_shell() -> str:
+    global _SHELL_CMD
+    if _SHELL_CMD is not None:
+        return _SHELL_CMD
+    try:
+        subprocess.run(
+            ["pwsh.exe", "-Command", "exit 0"],
+            capture_output=True, timeout=5,
+            creationflags=0x08000000,
+        )
+        _SHELL_CMD = "pwsh.exe"
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        _SHELL_CMD = "powershell.exe"
+    return _SHELL_CMD
+
+
 class ToolExecutor:
     MAX_OUTPUT_CHARS = 4000
 
@@ -73,17 +93,7 @@ class ToolExecutor:
                 "Tool execution only available on Windows.", 1,
             )
 
-        # Preferir pwsh.exe (PowerShell 7+), fallback a powershell.exe
-        shell = "pwsh.exe"
-        try:
-            subprocess.run(
-                [shell, "-Command", "exit 0"],
-                capture_output=True, timeout=5,
-                creationflags=0x08000000,
-            )
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            shell = "powershell.exe"
-
+        shell = _get_shell()
         self._cancelled = False
         proc: subprocess.Popen | None = None
         try:
@@ -98,12 +108,11 @@ class ToolExecutor:
             # Store under lock so cancel() can see the live process.
             with self._lock:
                 self._proc = proc
-            # Release the lock before wait() to avoid 30s lock hold.
-            proc.wait(timeout=timeout)
-            stdout = (proc.stdout.read(self.MAX_OUTPUT_CHARS)
-                      if proc.stdout else "")[:self.MAX_OUTPUT_CHARS]
-            stderr = (proc.stderr.read(self.MAX_OUTPUT_CHARS)
-                      if proc.stderr else "")[:self.MAX_OUTPUT_CHARS]
+            # communicate() drains pipes before waiting — prevents deadlock
+            # if subprocess output exceeds the OS pipe buffer (~4-64 KB).
+            stdout_raw, stderr_raw = proc.communicate(timeout=timeout)
+            stdout = (stdout_raw or "")[:self.MAX_OUTPUT_CHARS]
+            stderr = (stderr_raw or "")[:self.MAX_OUTPUT_CHARS]
             returncode = proc.returncode
             cancelled = self._cancelled
             return ToolResult(tool_name, command, stdout, stderr,
@@ -112,7 +121,7 @@ class ToolExecutor:
             if proc is not None:
                 try:
                     proc.kill()
-                    proc.wait(timeout=5)
+                    proc.communicate()  # drain to avoid zombie
                 except Exception:
                     pass
             return ToolResult(tool_name, command, "",
@@ -121,7 +130,7 @@ class ToolExecutor:
             if proc is not None:
                 try:
                     proc.kill()
-                    proc.wait(timeout=5)
+                    proc.communicate()
                 except Exception:
                     pass
             return ToolResult(tool_name, command, "", str(e), 1)

@@ -349,7 +349,6 @@ class ChatPanel(wx.Panel):
         # 2. Copy last (Ctrl+Shift+C)
         menu_copy_last = wx.MenuItem(
             menu, wx.ID_ANY, "Copiar último\tCtrl+Shift+C",
-            name="menu_copy_last",
         )
         menu.Append(menu_copy_last)
         self.Bind(
@@ -359,7 +358,6 @@ class ChatPanel(wx.Panel):
         # 3. Open in browser (Ctrl+Enter)
         menu_browser = wx.MenuItem(
             menu, wx.ID_ANY, "&Abrir en navegador\tCtrl+Enter",
-            name="menu_open_browser",
         )
         menu.Append(menu_browser)
         self.Bind(wx.EVT_MENU, lambda evt: self._on_context_browser(), menu_browser)
@@ -367,7 +365,6 @@ class ChatPanel(wx.Panel):
         # 4. Edit previous message (Alt+Up)
         menu_edit = wx.MenuItem(
             menu, wx.ID_ANY, "&Editar mensaje anterior\tAlt+Up",
-            name="menu_edit_message",
         )
         menu.Append(menu_edit)
         self.Bind(
@@ -378,7 +375,6 @@ class ChatPanel(wx.Panel):
             # 5. Delete message (Supr)
             menu_delete = wx.MenuItem(
                 menu, wx.ID_DELETE, "&Eliminar mensaje",
-                name="menu_delete_message",
             )
             menu.Append(menu_delete)
             self.Bind(
@@ -388,7 +384,6 @@ class ChatPanel(wx.Panel):
             # 6. Delete last exchange (Ctrl+K)
             menu_del_last = wx.MenuItem(
                 menu, wx.ID_ANY, "Borrar último intercambio\tCtrl+K",
-                name="menu_delete_last_exchange",
             )
             menu.Append(menu_del_last)
             self.Bind(
@@ -400,7 +395,6 @@ class ChatPanel(wx.Panel):
             # 7. Regenerate last response (Ctrl+R)
             menu_regen = wx.MenuItem(
                 menu, wx.ID_ANY, "Regenerar última respuesta\tCtrl+R",
-                name="menu_regenerate_last",
             )
             menu.Append(menu_regen)
             self.Bind(
@@ -422,6 +416,8 @@ class ChatPanel(wx.Panel):
         sel = self.message_list.GetSelection()
         if sel == wx.NOT_FOUND:
             return
+        if sel >= len(self._history):
+            return
         role, text = self._history[sel]
         if wx.TheClipboard.Open():
             wx.TheClipboard.SetData(wx.TextDataObject(text))
@@ -432,6 +428,8 @@ class ChatPanel(wx.Panel):
         """Open the selected message in the browser (handled by MainWindow)."""
         sel = self.message_list.GetSelection()
         if sel == wx.NOT_FOUND:
+            return
+        if sel >= len(self._history):
             return
         role, text = self._history[sel]
         # Find the parent MainWindow to call _open_message_in_browser
@@ -518,6 +516,8 @@ class ChatPanel(wx.Panel):
         """Open the MessageDetailDialog for the selected message."""
         sel = self.message_list.GetSelection()
         if sel == wx.NOT_FOUND:
+            return
+        if sel >= len(self._history):
             return
         role, text = self._history[sel]
         # Look up reasoning from MainWindow._conversation
@@ -692,13 +692,18 @@ class ChatPanel(wx.Panel):
         ext = path.suffix.lower().lstrip(".")
 
         if ext in ("jpg", "jpeg", "png", "bmp", "gif"):
-            with open(path, "rb") as f:
-                encoded = base64.b64encode(f.read()).decode("utf-8")
-            mime = self._infer_mime(ext)
-            self._attached_images = [(encoded, mime)]
-            self._attached_text = None
-            self.attachment_label.SetLabel(path.name)
-            self._speech.speak(f"Imagen adjuntada: {path.name}", interrupt=True)
+            try:
+                with open(path, "rb") as f:
+                    encoded = base64.b64encode(f.read()).decode("utf-8")
+                mime = self._infer_mime(ext)
+                self._attached_images = [(encoded, mime)]
+                self._attached_text = None
+                self.attachment_label.SetLabel(path.name)
+                self._speech.speak(f"Imagen adjuntada: {path.name}", interrupt=True)
+            except Exception:
+                self._speech.speak(
+                    f"No se pudo adjuntar: {path.name}", interrupt=True
+                )
         else:
             try:
                 text_content = path.read_text(encoding="utf-8")

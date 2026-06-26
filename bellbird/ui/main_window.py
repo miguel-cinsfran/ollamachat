@@ -18,6 +18,7 @@ import wx
 
 from pathlib import Path
 
+from bellbird import __version__ as _BELLBIRD_VERSION
 from bellbird.core.conversation import Conversation
 from bellbird.core.llama_client import LlamaClient
 from bellbird.core.llama_runner import (
@@ -398,7 +399,6 @@ class MainWindow(wx.Frame):
         menu_attach_url = wx.MenuItem(
             archivo_menu, wx.ID_ANY, "&Adjuntar URL...\tCtrl+U",
             "Adjuntar contenido de una URL como contexto del mensaje",
-            name="menu_attach_url",
         )
         archivo_menu.Append(menu_attach_url)
         self.Bind(
@@ -2241,12 +2241,14 @@ class MainWindow(wx.Frame):
             except Exception as e:
                 error_msg = f"No se pudo cargar la conversación: {e}"
                 self._speech.speak(error_msg, interrupt=True)
-                wx.MessageDialog(
+                err_dlg = wx.MessageDialog(
                     self,
                     message=error_msg,
                     caption="Error",
                     style=wx.OK | wx.ICON_ERROR,
-                ).ShowModal()
+                )
+                err_dlg.ShowModal()
+                err_dlg.Destroy()
         dialog.Destroy()
 
     # ── New Conversation ────────────────────────────────────────────────────
@@ -2344,17 +2346,19 @@ class MainWindow(wx.Frame):
     def _show_about(self) -> None:
         """Show About dialog."""
         about_msg = (
-            "Bellbird v0.5.0\n\n"
+            f"Bellbird v{_BELLBIRD_VERSION}\n\n"
             "Cliente accesible de chat para modelos locales .gguf\n"
             "usando llama-server (llama.cpp).\n"
             "Diseñado para usuarios de lectores de pantalla."
         )
-        wx.MessageDialog(
+        dlg = wx.MessageDialog(
             self,
             message=about_msg,
             caption="Acerca de Bellbird",
             style=wx.OK | wx.ICON_INFORMATION,
-        ).ShowModal()
+        )
+        dlg.ShowModal()
+        dlg.Destroy()
         self._speech.speak(about_msg, interrupt=True)
 
     def _show_shortcuts(self) -> None:

@@ -160,9 +160,9 @@ class TestAttachUrl:
 
         class FakeSpeech:
             def __init__(self):
-                self.last_message = ""
+                self.messages = []
             def speak(self, text, interrupt=False):
-                self.last_message = text
+                self.messages.append(text)
 
         panel._speech = FakeSpeech()
         panel.attach_url("https://e.com", "text", "e.com")
@@ -172,9 +172,9 @@ class TestAttachUrl:
         assert panel._attached_text == "text", (
             f"Expected 'text', got {panel._attached_text!r}"
         )
-        assert panel._speech.last_message == "Imagen reemplazada", (
-            f"Expected 'Imagen reemplazada', got "
-            f"{panel._speech.last_message!r}"
+        assert "Imagen reemplazada" in panel._speech.messages, (
+            f"Expected 'Imagen reemplazada' to be spoken, got "
+            f"{panel._speech.messages!r}"
         )
 
     def test_attach_url_clears_images_no_speech_when_no_images(self, panel):

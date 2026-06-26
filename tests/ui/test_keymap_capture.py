@@ -337,21 +337,27 @@ class TestMainWindowShowPreferences:
         from bellbird.ui.main_window import MainWindow
 
         app = wx.App()
-        frame = MainWindow(title="Test")
+        # Start from a known-empty override state regardless of disk content
+        clean_cfg = BellbirdConfig()
+        modified_cfg = BellbirdConfig(
+            keymap_overrides={"new_conversation": (KEYMAP_MOD_ALT, ord("N"))}
+        )
+        with unittest.mock.patch("bellbird.ui.main_window.load_config", return_value=clean_cfg):
+            frame = MainWindow(title="Test")
 
         with unittest.mock.patch.object(
             frame, "rebuild_accelerator_table",
         ) as mock_rebuild:
             with unittest.mock.patch.object(
-                PreferencesDialog, "ShowModal",
-            ) as mock_show:
-                def _side_effect(self_):
-                    self_._config.keymap_overrides["new_conversation"] = (
-                        KEYMAP_MOD_ALT, ord("N"),
-                    )
-                    return wx.ID_OK
-                mock_show.side_effect = _side_effect
-                frame._show_preferences()
+                PreferencesDialog, "ShowModal", return_value=wx.ID_OK,
+            ):
+                with unittest.mock.patch.object(
+                    PreferencesDialog, "get_config", return_value=modified_cfg,
+                ):
+                    with unittest.mock.patch(
+                        "bellbird.ui.main_window.save_config"
+                    ):
+                        frame._show_preferences()
 
         mock_rebuild.assert_called_once()
         frame.Destroy()
