@@ -1,11 +1,29 @@
 """Model metadata utilities — wx-free, strict TDD.
 
 Provides auto-detection of multimodal projector (.mmproj) files
-sibling to a given model file. The module is intentionally wx-free
-so it can be unit-tested in environments without wxPython (e.g. WSL).
+sibling to a given model file, plus GGUF header reading and file-size
+estimation. The module is intentionally wx-free so it can be unit-tested
+in environments without wxPython (e.g. WSL).
 """
 
+import os
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
+
+
+@dataclass(frozen=True)
+class GGUFMetadata:
+    """Frozen dataclass holding key metadata from a .gguf file header.
+
+    Fields are ``None`` when the corresponding key is missing from
+    the file header or the ``gguf`` package ``ImportError``'d.
+    """
+
+    block_count: int | None = None
+    context_length: int | None = None
+    file_type: str | None = None
+    size_bytes: int | None = None
 
 
 def find_mmproj_for_model(model_path: Path) -> Path | None:
@@ -60,3 +78,95 @@ def find_mmproj_for_model(model_path: Path) -> Path | None:
         return pattern3[0].resolve()
 
     return None
+
+
+# ─── GGUF metadata (v0.9.0) ──────────────────────────────────────────────────
+
+
+def read_gguf_metadata(path: str | Path) -> GGUFMetadata | None:
+    """Read key metadata from a .gguf file header.
+
+    Uses the ``gguf`` package (GGUFReader) — imported line-locally so the
+    module stays import-clean if the dep is missing. Returns ``None`` on
+    ``ImportError``, ``FileNotFoundError``, corrupt data, or any other
+    failure (never raises).
+
+    Args:
+        path: Path to the .gguf file (string or ``Path``).
+
+    Returns:
+        A ``GGUFMetadata`` with parsed header fields and file size, or
+        ``None`` if the file could not be read.
+    """
+    try:
+        import gguf  # line-local — module stays clean if dep is missing
+    except ImportError:
+        return None
+
+    try:
+        resolved = Path(path).resolve()
+        reader = gguf.GGUFReader(str(resolved))
+
+        # Read architecture to access arch-specific keys
+        arch_field = reader.fields.get("general.architecture")
+        if arch_field is None:
+            return GGUFMetadata(size_bytes=_try_getsize(resolved))
+
+        arch = arch_field.contents()
+        if isinstance(arch, bytes):
+            arch_name = arch.decode("utf-8", errors="replace")
+        else:
+            arch_name = str(arch)
+
+        # Block count
+        block_count: int | None = None
+        bc_key = f"{arch_name}.block_count"
+        if bc_key in reader.fields:
+            block_count = int(reader.fields[bc_key].contents())
+
+        # Context length
+        context_length: int | None = None
+        cl_key = f"{arch_name}.context_length"
+        if cl_key in reader.fields:
+            context_length = int(reader.fields[cl_key].contents())
+
+        # File type (map integer to LlamaFileType name if possible)
+        file_type: str | None = None
+        if "general.file_type" in reader.fields:
+            ft_val = int(reader.fields["general.file_type"].contents())
+            try:
+                file_type = gguf.LlamaFileType(ft_val).name
+            except (ValueError, TypeError):
+                file_type = f"type_{ft_val}"
+
+        size = _try_getsize(resolved)
+
+        return GGUFMetadata(
+            block_count=block_count,
+            context_length=context_length,
+            file_type=file_type,
+            size_bytes=size,
+        )
+    except Exception:
+        return None
+
+
+def estimate_size_bytes(path: str | Path) -> int | None:
+    """Return the file size in bytes, or ``None`` if the path is missing /
+    unreadable (never raises).
+
+    Args:
+        path: Path to the file (string or ``Path``).
+
+    Returns:
+        Size in bytes as an ``int``, or ``None`` on ``OSError``.
+    """
+    return _try_getsize(path)
+
+
+def _try_getsize(path: str | Path) -> int | None:
+    """Internal helper — ``os.path.getsize`` with ``None`` fallback."""
+    try:
+        return os.path.getsize(path)
+    except OSError:
+        return None

@@ -926,6 +926,142 @@ def test_should_auto_restore_path_missing():
     assert should_auto_restore(cfg) is False
 
 
+# ─── v0.9.0: 4 new fields (T-WU1-12) ────────────────────────────────────────
+
+
+class TestV090Config:
+    """Tests for the 4 new BellbirdConfig fields."""
+
+    def test_safe_vram_mode_default_false(self):
+        """GIVEN a fresh BellbirdConfig()
+        THEN safe_vram_mode is False."""
+        from bellbird.core.config import BellbirdConfig
+        cfg = BellbirdConfig()
+        assert cfg.safe_vram_mode is False
+
+    def test_status_toggles_default_all_true(self):
+        """GIVEN a fresh BellbirdConfig()
+        THEN status_toggles has all DEFAULT_STATUS_TOGGLES keys set to True."""
+        from bellbird.core.config import BellbirdConfig
+        from bellbird.core.status_formatter import DEFAULT_STATUS_TOGGLES
+
+        cfg = BellbirdConfig()
+        for name in DEFAULT_STATUS_TOGGLES:
+            assert cfg.status_toggles[name] is True, f"toggle {name!r} should be True"
+
+    def test_status_toggles_per_instance(self):
+        """GIVEN two fresh BellbirdConfig() instances
+        WHEN one instance modifies status_toggles
+        THEN the other instance is unchanged."""
+        from bellbird.core.config import BellbirdConfig
+
+        a = BellbirdConfig()
+        b = BellbirdConfig()
+        a.status_toggles["model_name"] = False
+        assert b.status_toggles["model_name"] is True
+
+    def test_model_tunings_default_empty_dict(self):
+        """GIVEN a fresh BellbirdConfig()
+        THEN model_tunings == {}."""
+        from bellbird.core.config import BellbirdConfig
+
+        cfg = BellbirdConfig()
+        assert cfg.model_tunings == {}
+
+    def test_model_tunings_per_instance(self):
+        """GIVEN two fresh BellbirdConfig() instances
+        WHEN one sets model_tunings
+        THEN the other is empty."""
+        from bellbird.core.config import BellbirdConfig
+
+        a = BellbirdConfig()
+        b = BellbirdConfig()
+        a.model_tunings["phi-3.gguf"] = {"ctx_size": 8192}
+        assert b.model_tunings == {}
+
+    def test_pre_send_warn_default_true(self):
+        """GIVEN a fresh BellbirdConfig()
+        THEN pre_send_warn is True."""
+        from bellbird.core.config import BellbirdConfig
+
+        cfg = BellbirdConfig()
+        assert cfg.pre_send_warn is True
+
+    def test_4_new_fields_roundtrip(self, monkeypatch, tmp_path):
+        """GIVEN BellbirdConfig with all 4 new fields set
+        WHEN save then load
+        THEN all 4 fields round-trip."""
+        import json
+        from bellbird.core.config import BellbirdConfig, save_config, load_config
+        from bellbird.core import config as config_module
+
+        cfg = BellbirdConfig(
+            safe_vram_mode=True,
+            status_toggles={"model_name": False, "context_pct": True},
+            model_tunings={"a.gguf": {"ctx_size": 4096, "n_gpu_layers": 35, "threads": 4}},
+            pre_send_warn=False,
+        )
+        path = tmp_path / "config.json"
+        save_config(cfg, path)
+        monkeypatch.setattr(config_module, "CONFIG_PATH", path)
+        loaded = load_config()
+
+        assert loaded.safe_vram_mode is True
+        assert loaded.status_toggles["model_name"] is False
+        assert loaded.status_toggles["context_pct"] is True
+        assert loaded.model_tunings["a.gguf"]["ctx_size"] == 4096
+        assert loaded.pre_send_warn is False
+
+    def test_missing_new_keys_from_v083_fallback_to_defaults(self, monkeypatch, tmp_path):
+        """GIVEN a v0.8.3 config.json WITHOUT the 4 new fields
+        WHEN load_config() runs
+        THEN the new fields have their defaults."""
+        import json
+        from bellbird.core import config as config_module
+        from bellbird.core.config import load_config
+
+        path = tmp_path / "config.json"
+        data = {"port": 8080, "temperature": 0.7}
+        path.write_text(json.dumps(data), encoding="utf-8")
+        monkeypatch.setattr(config_module, "CONFIG_PATH", path)
+        loaded = load_config()
+
+        assert loaded.safe_vram_mode is False
+        assert len(loaded.status_toggles) == 11
+        assert loaded.model_tunings == {}
+        assert loaded.pre_send_warn is True
+
+    def test_status_toggles_as_set_returns_true_keys(self):
+        """GIVEN BellbirdConfig with partial toggles
+        WHEN status_toggles_as_set() is called
+        THEN returns set of True-valued keys."""
+        from bellbird.core.config import BellbirdConfig
+
+        cfg = BellbirdConfig(status_toggles={
+            "model_name": True, "context_pct": False, "temperature": True,
+        })
+        result = cfg.status_toggles_as_set()
+        assert result == {"model_name", "temperature"}
+
+    def test_status_toggles_as_set_empty_returns_empty_set(self):
+        """GIVEN BellbirdConfig with empty status_toggles
+        WHEN status_toggles_as_set() is called
+        THEN returns empty set (no error)."""
+        from bellbird.core.config import BellbirdConfig
+
+        cfg = BellbirdConfig(status_toggles={})
+        result = cfg.status_toggles_as_set()
+        assert result == set()
+
+    def test_migrations_dict_unchanged_no_new_entries(self):
+        """GIVEN the _MIGRATIONS dict
+        THEN it still has exactly one entry (max_tokens) — no migration
+        entry for the 4 new fields."""
+        from bellbird.core.config import _MIGRATIONS
+        assert len(_MIGRATIONS) == 1
+        assert "max_tokens" in _MIGRATIONS
+
+
 def test_should_auto_restore_ok(tmp_path):
     """GIVEN toggle on AND path exists AND non-empty
     WHEN should_auto_restore

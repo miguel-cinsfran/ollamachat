@@ -1047,3 +1047,165 @@ class TestCheckToolSupport:
 
         client = LlamaClient(session=mock_session)
         assert client.check_tool_support() is False
+
+
+# ─── on_timings callback (v0.9.0, T-WU1-09) ─────────────────────────────────
+
+
+class TestOnTimings:
+    """Tests for the on_timings callback in chat_stream."""
+
+    def test_on_timings_fires_with_timings_dict(self, mock_session, mock_call_after):
+        """GIVEN a stream with timings in the final chunk
+        WHEN chat_stream(..., on_timings=<mock>) is called
+        THEN on_timings is invoked with the timings dict."""
+        mock_response = MagicMock()
+        mock_response.iter_lines.return_value = [
+            b'data: {"choices":[{"delta":{"content":"hi"}}]}',
+            b'data: {"timings":{"predicted_per_second":18.4,"prompt_n":12,"predicted_n":80},"choices":[{"finish_reason":"stop","delta":{}}]}',
+            b'data: [DONE]',
+        ]
+        mock_response.status_code = 200
+        mock_response.reason = "OK"
+        ctx = MagicMock()
+        ctx.__enter__.return_value = mock_response
+        ctx.__exit__.return_value = False
+        mock_session.post.return_value = ctx
+
+        from bellbird.core.llama_client import LlamaClient
+
+        client = LlamaClient(session=mock_session)
+        on_timings = Mock()
+        on_done = Mock()
+        on_error = Mock()
+
+        client.chat_stream([], {}, Mock(), on_done, on_error, on_timings=on_timings)
+        import time; time.sleep(0.15)
+
+        assert on_timings.call_count == 1
+        args = on_timings.call_args[0][0]
+        assert args["predicted_per_second"] == 18.4
+
+    def test_on_timings_none_does_not_crash(self, mock_session, mock_call_after):
+        """GIVEN a stream with timings AND on_timings=None (default)
+        WHEN chat_stream runs
+        THEN no error occurs."""
+        mock_response = MagicMock()
+        mock_response.iter_lines.return_value = [
+            b'data: {"choices":[{"delta":{"content":"ok"}}]}',
+            b'data: {"timings":{"predicted_per_second":18.4},"choices":[{"finish_reason":"stop","delta":{}}]}',
+            b'data: [DONE]',
+        ]
+        mock_response.status_code = 200
+        mock_response.reason = "OK"
+        ctx = MagicMock()
+        ctx.__enter__.return_value = mock_response
+        ctx.__exit__.return_value = False
+        mock_session.post.return_value = ctx
+
+        from bellbird.core.llama_client import LlamaClient
+
+        client = LlamaClient(session=mock_session)
+        on_done = Mock()
+        on_error = Mock()
+
+        # No exception should be raised
+        client.chat_stream([], {}, Mock(), on_done, on_error)
+        import time; time.sleep(0.15)
+        assert on_done.call_count == 1
+
+    def test_on_timings_fires_after_on_usage(self, mock_session, mock_call_after):
+        """GIVEN a stream with both usage and timings in the final chunk
+        WHEN chat_stream runs
+        THEN both callbacks fire."""
+        mock_response = MagicMock()
+        mock_response.iter_lines.return_value = [
+            b'data: {"choices":[{"delta":{"content":"ok"}}]}',
+            b'data: {"usage":{"prompt_tokens":12,"completion_tokens":80,"total_tokens":92},"timings":{"predicted_per_second":18.4},"choices":[{"finish_reason":"stop","delta":{}}]}',
+            b'data: [DONE]',
+        ]
+        mock_response.status_code = 200
+        mock_response.reason = "OK"
+        ctx = MagicMock()
+        ctx.__enter__.return_value = mock_response
+        ctx.__exit__.return_value = False
+        mock_session.post.return_value = ctx
+
+        from bellbird.core.llama_client import LlamaClient
+
+        client = LlamaClient(session=mock_session)
+        on_timings = Mock()
+        on_usage = Mock()
+        on_done = Mock()
+        on_error = Mock()
+
+        client.chat_stream(
+            [], {}, Mock(), on_done, on_error,
+            on_usage=on_usage, on_timings=on_timings,
+        )
+        import time; time.sleep(0.15)
+
+        assert on_usage.call_count == 1
+        assert on_timings.call_count == 1
+
+    def test_on_timings_empty_timings_skipped(self, mock_session, mock_call_after):
+        """GIVEN a stream with timings={} (empty dict)
+        WHEN chat_stream(..., on_timings=<mock>) is called
+        THEN on_timings is NOT invoked."""
+        mock_response = MagicMock()
+        mock_response.iter_lines.return_value = [
+            b'data: {"choices":[{"delta":{"content":"ok"}}]}',
+            b'data: {"timings":{},"choices":[{"finish_reason":"stop","delta":{}}]}',
+            b'data: [DONE]',
+        ]
+        mock_response.status_code = 200
+        mock_response.reason = "OK"
+        ctx = MagicMock()
+        ctx.__enter__.return_value = mock_response
+        ctx.__exit__.return_value = False
+        mock_session.post.return_value = ctx
+
+        from bellbird.core.llama_client import LlamaClient
+
+        client = LlamaClient(session=mock_session)
+        on_timings = Mock()
+        on_done = Mock()
+
+        client.chat_stream([], {}, Mock(), on_done, Mock(), on_timings=on_timings)
+        import time; time.sleep(0.15)
+
+        assert on_timings.call_count == 0
+
+
+# ─── include_usage wire contract regression (v0.9.0, T-WU1-10) ───────────────
+
+
+class TestIncludeUsageRegression:
+    """Regression test that pins stream_options.include_usage in the body."""
+
+    def test_body_contains_include_usage(self, mock_session):
+        """GIVEN a stubbed session.post
+        WHEN chat_stream runs (no on_usage provided)
+        THEN the JSON body contains 'stream_options': {'include_usage': True}."""
+        mock_response = MagicMock()
+        mock_response.iter_lines.return_value = [
+            b'data: {"choices":[{"delta":{"content":"ok"}}]}',
+            b'data: [DONE]',
+        ]
+        mock_response.status_code = 200
+        mock_response.reason = "OK"
+        ctx = MagicMock()
+        ctx.__enter__.return_value = mock_response
+        ctx.__exit__.return_value = False
+        mock_session.post.return_value = ctx
+
+        from bellbird.core.llama_client import LlamaClient
+
+        client = LlamaClient(session=mock_session)
+        client.chat_stream([], {}, Mock(), Mock(), Mock())
+        import time; time.sleep(0.1)
+
+        _, kwargs = mock_session.post.call_args
+        body = kwargs["json"]
+        assert body["stream"] is True
+        assert body["stream_options"] == {"include_usage": True}

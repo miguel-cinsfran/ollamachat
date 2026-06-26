@@ -174,6 +174,8 @@ def start_server(
     timeout: float = 60.0,
     mmproj: str | None = None,
     mmproj_offload: bool = True,
+    threads: int | None = None,
+    flash_attn: bool = False,
 ) -> tuple[bool, str]:
     """Start llama-server with the given model.
 
@@ -228,6 +230,10 @@ def start_server(
             argv.extend(["--mmproj", mmproj])
         if not mmproj_offload:
             argv.append("--no-mmproj-offload")
+        if threads is not None:
+            argv.extend(["--threads", str(threads)])
+        if flash_attn:
+            argv.append("--flash-attn")
 
         # Step 4: Spawn — capture stderr so we can detect known errors
         # early instead of waiting the full polling timeout.

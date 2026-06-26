@@ -7,6 +7,7 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 
 from bellbird.core.paths import user_data_dir
+from bellbird.core.status_formatter import DEFAULT_STATUS_TOGGLES
 
 CONFIG_PATH = user_data_dir() / "config.json"
 LEGACY_CONFIG_PATH = Path(__file__).parent.parent / "data" / "config.json"
@@ -41,6 +42,23 @@ class BellbirdConfig:
     last_session_path: str = ""
     recent_files: list[str] = field(default_factory=list)
     url_max_chars: int = 50000
+
+    # v0.9.0: context advisor + toggleable F2
+    safe_vram_mode: bool = False
+    status_toggles: dict[str, bool] = field(
+        default_factory=lambda: {t: True for t in DEFAULT_STATUS_TOGGLES}
+    )
+    model_tunings: dict[str, dict] = field(default_factory=dict)
+    pre_send_warn: bool = True
+
+    def status_toggles_as_set(self) -> set[str]:
+        """Return the set of toggle names whose value is ``True``.
+
+        Returns:
+            Active toggle names, or an empty set when ``status_toggles``
+            is empty (defensive).
+        """
+        return {k for k, v in self.status_toggles.items() if v}
 
     def get_mmproj_for(self, model_path: str | Path) -> str | None:
         """Look up the mmproj path for a model by basename.

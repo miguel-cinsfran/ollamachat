@@ -250,6 +250,7 @@ class LlamaClient:
         on_tool_call: Callable[[str, str, dict], None] | None = None,
         tools: list[dict] | None = None,
         on_reasoning: Callable[[str], None] | None = None,
+        on_timings: Callable[[dict], None] | None = None,
     ) -> None:
         """Start a streaming chat in a background daemon thread.
 
@@ -294,7 +295,7 @@ class LlamaClient:
         self._stop_event.clear()
         self._stream_thread = threading.Thread(
             target=self._stream_worker,
-            args=(messages, options, on_token, on_done, on_error, on_usage, on_tool_call, tools, on_reasoning),
+            args=(messages, options, on_token, on_done, on_error, on_usage, on_tool_call, tools, on_reasoning, on_timings),
             daemon=True,
         )
         self._stream_thread.start()
@@ -314,6 +315,7 @@ class LlamaClient:
         on_tool_call: Callable[[str, str, dict], None] | None = None,
         tools: list[dict] | None = None,
         on_reasoning: Callable[[str], None] | None = None,
+        on_timings: Callable[[dict], None] | None = None,
     ) -> None:
         """Background thread worker for streaming chat.
 
@@ -446,6 +448,14 @@ class LlamaClient:
                         usage = chunk.get("usage")
                         if usage is not None:
                             wx.CallAfter(on_usage, usage)
+
+                    # Timings callback: fire on the final chunk's timings
+                    # field. When on_timings is None, skip the field entirely
+                    # (no overhead, no error).
+                    if on_timings is not None:
+                        timings = chunk.get("timings")
+                        if timings is not None and timings:  # non-empty dict
+                            wx.CallAfter(on_timings, timings)
 
                     delta = chunk.get("choices", [{}])[0].get("delta", {})
                     reasoning_content = delta.get("reasoning_content") or ""

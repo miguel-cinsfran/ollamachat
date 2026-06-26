@@ -550,6 +550,87 @@ class TestLlamaRunner:
         assert "--no-mmproj-offload" in argv
         assert "--jinja" in argv
 
+    # ── threads + flash_attn (v0.9.0, T-WU1-11) ─────────────────────────
+
+    def test_start_server_no_threads_no_flash_attn_default(self):
+        """Given no threads/flash_attn kwargs, argv has no --threads or --flash-attn."""
+        client = self._make_client(check_running_result=False)
+        popen_mock = self._make_proc()
+
+        with patch("bellbird.core.llama_runner.subprocess.Popen",
+                   return_value=popen_mock) as popen_patch:
+            from bellbird.core.llama_runner import start_server
+
+            ok, message = start_server("/fake/model.gguf", client, timeout=0.5)
+
+        popen_patch.assert_called_once()
+        args, _ = popen_patch.call_args
+        argv = args[0]
+        assert "--threads" not in argv
+        assert "--flash-attn" not in argv
+
+    def test_start_server_with_threads_4(self):
+        """Given threads=4, argv contains --threads 4."""
+        client = self._make_client(check_running_result=False)
+        popen_mock = self._make_proc()
+
+        with patch("bellbird.core.llama_runner.subprocess.Popen",
+                   return_value=popen_mock) as popen_patch:
+            from bellbird.core.llama_runner import start_server
+
+            ok, message = start_server(
+                "/fake/model.gguf", client, timeout=0.5,
+                threads=4,
+            )
+
+        popen_patch.assert_called_once()
+        args, _ = popen_patch.call_args
+        argv = args[0]
+        assert "--threads" in argv
+        idx = argv.index("--threads")
+        assert argv[idx + 1] == "4"
+
+    def test_start_server_with_flash_attn(self):
+        """Given flash_attn=True, argv contains --flash-attn."""
+        client = self._make_client(check_running_result=False)
+        popen_mock = self._make_proc()
+
+        with patch("bellbird.core.llama_runner.subprocess.Popen",
+                   return_value=popen_mock) as popen_patch:
+            from bellbird.core.llama_runner import start_server
+
+            ok, message = start_server(
+                "/fake/model.gguf", client, timeout=0.5,
+                flash_attn=True,
+            )
+
+        popen_patch.assert_called_once()
+        args, _ = popen_patch.call_args
+        argv = args[0]
+        assert "--flash-attn" in argv
+
+    def test_start_server_both_threads_and_flash_attn(self):
+        """Given both threads=8 and flash_attn=True, argv has both."""
+        client = self._make_client(check_running_result=False)
+        popen_mock = self._make_proc()
+
+        with patch("bellbird.core.llama_runner.subprocess.Popen",
+                   return_value=popen_mock) as popen_patch:
+            from bellbird.core.llama_runner import start_server
+
+            ok, message = start_server(
+                "/fake/model.gguf", client, timeout=0.5,
+                threads=8, flash_attn=True,
+            )
+
+        popen_patch.assert_called_once()
+        args, _ = popen_patch.call_args
+        argv = args[0]
+        assert "--threads" in argv
+        idx = argv.index("--threads")
+        assert argv[idx + 1] == "8"
+        assert "--flash-attn" in argv
+
     def test_start_server_mmproj_offload_true_by_default(self):
         """Given mmproj_offload=True (default), argv does NOT contain --no-mmproj-offload."""
         client = self._make_client(check_running_result=False)
