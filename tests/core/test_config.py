@@ -1385,3 +1385,41 @@ class TestV0110Config:
         assert "filter_strip_urls" not in _MIGRATIONS
         assert "filter_strip_emojis" not in _MIGRATIONS
         assert "filter_strip_code_blocks" not in _MIGRATIONS
+
+
+def test_migrations_bump_max_tokens_512_to_4096(monkeypatch, tmp_path):
+    """GIVEN a JSON config with ``max_tokens: 512`` (v0.5.0 default)
+    WHEN load_config() runs
+    THEN the resulting ``BellbirdConfig.max_tokens`` equals 4096.
+
+    Per REQ-CONFIG-3 in openspec/changes/config-log-user-data-dir/specs.
+    The migration in ``_MIGRATIONS`` MUST rewrite the legacy 512 value
+    to the post-v0.5.1 default of 4096 so reasoning models can complete
+    their thinking phase.
+    """
+    import json
+
+    from bellbird.core import config as config_module
+
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"max_tokens": 512}), encoding="utf-8")
+    monkeypatch.setattr(config_module, "CONFIG_PATH", path)
+
+    loaded = load_config()
+    assert loaded.max_tokens == 4096
+
+
+def test_migrations_does_not_touch_max_tokens_when_not_512(monkeypatch, tmp_path):
+    """GIVEN a JSON config with a non-default ``max_tokens`` (not 512)
+    WHEN load_config() runs
+    THEN ``max_tokens`` is preserved as-is (no false-positive migration)."""
+    import json
+
+    from bellbird.core import config as config_module
+
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"max_tokens": 2048}), encoding="utf-8")
+    monkeypatch.setattr(config_module, "CONFIG_PATH", path)
+
+    loaded = load_config()
+    assert loaded.max_tokens == 2048
