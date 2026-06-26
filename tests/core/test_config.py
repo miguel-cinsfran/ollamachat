@@ -1203,3 +1203,185 @@ class TestV0100AudioConfig:
         assert "notifications_enabled" not in _MIGRATIONS
         assert "sounds_enabled" not in _MIGRATIONS
         assert "sound_theme" not in _MIGRATIONS
+
+
+# ─── v0.11.0: 5 new fields (param_presets + 4 filter_strip_*) ───────────────
+
+
+class TestV0110Config:
+    """Tests for the 5 new BellbirdConfig fields (v0.11.0)."""
+
+    def test_filter_strip_markdown_default_true(self):
+        """GIVEN a fresh BellbirdConfig()
+        THEN filter_strip_markdown is True."""
+        cfg = BellbirdConfig()
+        assert cfg.filter_strip_markdown is True
+
+    def test_filter_strip_urls_default_true(self):
+        """GIVEN a fresh BellbirdConfig()
+        THEN filter_strip_urls is True."""
+        cfg = BellbirdConfig()
+        assert cfg.filter_strip_urls is True
+
+    def test_filter_strip_emojis_default_true(self):
+        """GIVEN a fresh BellbirdConfig()
+        THEN filter_strip_emojis is True."""
+        cfg = BellbirdConfig()
+        assert cfg.filter_strip_emojis is True
+
+    def test_filter_strip_code_blocks_default_true(self):
+        """GIVEN a fresh BellbirdConfig()
+        THEN filter_strip_code_blocks is True."""
+        cfg = BellbirdConfig()
+        assert cfg.filter_strip_code_blocks is True
+
+    def test_param_presets_default_empty(self):
+        """GIVEN a fresh BellbirdConfig()
+        THEN param_presets == [] (per-instance default)."""
+        cfg = BellbirdConfig()
+        assert cfg.param_presets == []
+
+    def test_param_presets_per_instance(self):
+        """GIVEN two fresh BellbirdConfig() instances
+        WHEN one gets a preset appended
+        THEN the other's param_presets is still empty."""
+        a = BellbirdConfig()
+        b = BellbirdConfig()
+        from bellbird.core.preset import ParamPreset
+        a.param_presets.append(ParamPreset(name="x", temperature=0.7))
+        assert b.param_presets == []
+
+    def test_v0110_5_new_fields_count(self):
+        """GIVEN BellbirdConfig.__dataclass_fields__
+        THEN there are at least 39 fields (34 + 5)."""
+        assert len(BellbirdConfig.__dataclass_fields__) >= 39
+
+    def test_v0110_filter_toggles_round_trip(self, monkeypatch, tmp_path):
+        """GIVEN BellbirdConfig with all 4 filter toggles set
+        WHEN save then load
+        THEN all 4 toggles round-trip."""
+        from bellbird.core import config as config_module
+
+        cfg = BellbirdConfig(
+            filter_strip_markdown=False,
+            filter_strip_urls=True,
+            filter_strip_emojis=False,
+            filter_strip_code_blocks=True,
+        )
+        path = tmp_path / "config.json"
+        save_config(cfg, path)
+        monkeypatch.setattr(config_module, "CONFIG_PATH", path)
+        loaded = load_config()
+        assert loaded.filter_strip_markdown is False
+        assert loaded.filter_strip_urls is True
+        assert loaded.filter_strip_emojis is False
+        assert loaded.filter_strip_code_blocks is True
+
+    def test_v0110_param_presets_round_trip(self, monkeypatch, tmp_path):
+        """GIVEN BellbirdConfig with a ParamPreset list
+        WHEN save then load
+        THEN the param_presets list round-trips as a list of ParamPreset."""
+        import json
+        from bellbird.core import config as config_module
+        from bellbird.core.preset import ParamPreset
+
+        cfg = BellbirdConfig(
+            param_presets=[
+                ParamPreset(
+                    name="creativo",
+                    temperature=1.10,
+                    min_p=0.08,
+                    max_tokens=2048,
+                    top_p=0.95,
+                    top_k=50,
+                    repeat_penalty=1.05,
+                    seed=42,
+                ),
+            ],
+        )
+        path = tmp_path / "config.json"
+        save_config(cfg, path)
+        monkeypatch.setattr(config_module, "CONFIG_PATH", path)
+        loaded = load_config()
+        assert len(loaded.param_presets) == 1
+        p = loaded.param_presets[0]
+        assert p.name == "creativo"
+        assert p.temperature == 1.10
+        assert p.min_p == 0.08
+        assert p.max_tokens == 2048
+        assert p.top_p == 0.95
+        assert p.top_k == 50
+        assert p.repeat_penalty == 1.05
+        assert p.seed == 42
+
+    def test_v0110_forward_compat_no_new_fields(self, monkeypatch, tmp_path):
+        """GIVEN a config.json WITHOUT the 5 new fields (v0.10.0 style)
+        WHEN load_config() runs on v0.11.0
+        THEN defaults are applied (no error)."""
+        import json
+        from bellbird.core import config as config_module
+
+        path = tmp_path / "config.json"
+        data = {"port": 8080, "temperature": 0.7}
+        path.write_text(json.dumps(data), encoding="utf-8")
+        monkeypatch.setattr(config_module, "CONFIG_PATH", path)
+        loaded = load_config()
+        # All 5 new fields should have their defaults
+        assert loaded.param_presets == []
+        assert loaded.filter_strip_markdown is True
+        assert loaded.filter_strip_urls is True
+        assert loaded.filter_strip_emojis is True
+        assert loaded.filter_strip_code_blocks is True
+
+    def test_v0110_forward_compat_with_unknown_field(self, monkeypatch, tmp_path):
+        """GIVEN a config.json with the 5 new fields + a future_field
+        WHEN load_config() runs
+        THEN new fields are loaded and future_field is silently dropped."""
+        import json
+        from bellbird.core import config as config_module
+        from bellbird.core.preset import ParamPreset
+
+        path = tmp_path / "config.json"
+        data = {
+            "param_presets": [
+                {
+                    "name": "test",
+                    "temperature": 0.8,
+                    "min_p": 0.05,
+                    "max_tokens": 1024,
+                    "top_p": 0.9,
+                    "top_k": 40,
+                    "repeat_penalty": 1.1,
+                    "seed": -1,
+                },
+            ],
+            "filter_strip_markdown": False,
+            "filter_strip_urls": True,
+            "filter_strip_emojis": False,
+            "filter_strip_code_blocks": True,
+            "future_field": "should_drop",
+        }
+        path.write_text(json.dumps(data), encoding="utf-8")
+        monkeypatch.setattr(config_module, "CONFIG_PATH", path)
+        loaded = load_config()
+        assert len(loaded.param_presets) == 1
+        assert loaded.param_presets[0].name == "test"
+        assert loaded.filter_strip_markdown is False
+        assert loaded.filter_strip_urls is True
+        assert loaded.filter_strip_emojis is False
+        assert loaded.filter_strip_code_blocks is True
+        assert not hasattr(loaded, "future_field")
+
+    def test_v0110_no_migration_entry(self):
+        """GIVEN the _MIGRATIONS dict
+        THEN it still has exactly one entry (max_tokens)
+        AND no entry references any of the 5 new fields."""
+        from bellbird.core.config import _MIGRATIONS
+
+        assert len(_MIGRATIONS) == 1
+        assert "max_tokens" in _MIGRATIONS
+        assert "param_presets" not in _MIGRATIONS
+        assert "filter_strip_markdown" not in _MIGRATIONS
+        assert "filter_strip_urls" not in _MIGRATIONS
+        assert "filter_strip_emojis" not in _MIGRATIONS
+        assert "filter_strip_code_blocks" not in _MIGRATIONS

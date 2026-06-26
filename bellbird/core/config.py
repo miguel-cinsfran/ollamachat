@@ -7,6 +7,7 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 
 from bellbird.core.paths import user_data_dir
+from bellbird.core.preset import ParamPreset
 from bellbird.core.status_formatter import DEFAULT_STATUS_TOGGLES
 
 CONFIG_PATH = user_data_dir() / "config.json"
@@ -58,6 +59,13 @@ class BellbirdConfig:
     notifications_enabled: bool = True
     sounds_enabled: bool = True
     sound_theme: str = "default"
+
+    # v0.11.0: param presets + TTS reading filters
+    param_presets: list[ParamPreset] = field(default_factory=list)
+    filter_strip_markdown: bool = True
+    filter_strip_urls: bool = True
+    filter_strip_emojis: bool = True
+    filter_strip_code_blocks: bool = True
 
     def status_toggles_as_set(self) -> set[str]:
         """Return the set of toggle names whose value is ``True``.
@@ -133,6 +141,14 @@ def load_config() -> BellbirdConfig:
                     else:
                         raise TypeError(f"Invalid keymap_overrides[{k!r}]: {v!r}")
                 filtered["keymap_overrides"] = normalised
+        # Normalise param_presets from JSON list-of-dicts to list of ParamPreset
+        if "param_presets" in filtered:
+            raw_presets = filtered["param_presets"]
+            if isinstance(raw_presets, list):
+                filtered["param_presets"] = [
+                    ParamPreset.from_dict(item) if isinstance(item, dict) else item
+                    for item in raw_presets
+                ]
         for field_name, (old_val, new_val) in _MIGRATIONS.items():
             if filtered.get(field_name) == old_val:
                 filtered[field_name] = new_val
