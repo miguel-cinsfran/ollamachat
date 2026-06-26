@@ -35,6 +35,12 @@ class FakeSpeech:
         self.last_message = text
         self.messages.append(text)
 
+    def output(self, text: str) -> None:
+        """Stub for accessible-output2's voz+braille output. Same effect as
+        speak(interrupt=False) for testing purposes."""
+        self.last_message = text
+        self.messages.append(text)
+
 
 def _make_frame(app, config_overrides: dict | None = None):
     """Create a MainWindow with patched config and speech.
