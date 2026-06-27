@@ -1039,7 +1039,7 @@ class TestV090Config:
         loaded = load_config()
 
         assert loaded.safe_vram_mode is False
-        assert len(loaded.status_toggles) == 12
+        assert len(loaded.status_toggles) == 13
         assert loaded.model_tunings == {}
         assert loaded.pre_send_warn is True
 

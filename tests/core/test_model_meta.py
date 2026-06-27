@@ -90,6 +90,38 @@ class TestFindMmprojForModel:
 
         assert result == a_proj.resolve()
 
+    def test_pattern0_prefix_match_single(self, tmp_path: Path) -> None:
+        """Pattern 0: mmproj named with model prefix is auto-detected.
+
+        This covers co-located mmproj files like
+        ``GLM-4.6V-Flash-mmproj-F16.gguf`` next to ``GLM-4.6V-Flash-Q4_K_M.gguf``
+        in a shared models directory.
+        """
+        model = tmp_path / "GLM-4.6V-Flash-Q4_K_M.gguf"
+        model.write_text("")
+        glm_proj = tmp_path / "GLM-4.6V-Flash-mmproj-F16.gguf"
+        glm_proj.write_text("")
+        # Unrelated mmproj for another model — must NOT be picked
+        (tmp_path / "gemma-4-12B-it-qat-mmproj-F16.gguf").write_text("")
+        from bellbird.core.model_meta import find_mmproj_for_model
+
+        result = find_mmproj_for_model(model)
+
+        assert result == glm_proj.resolve()
+
+    def test_pattern0_prefix_match_disambiguates(self, tmp_path: Path) -> None:
+        """Pattern 0 picks the right projector when multiple named mmproj co-exist."""
+        gemma_model = tmp_path / "gemma-4-12B-it-qat-UD-Q4_K_XL.gguf"
+        gemma_model.write_text("")
+        (tmp_path / "GLM-4.6V-Flash-mmproj-F16.gguf").write_text("")
+        gemma_proj = tmp_path / "gemma-4-12B-it-qat-mmproj-F16.gguf"
+        gemma_proj.write_text("")
+        from bellbird.core.model_meta import find_mmproj_for_model
+
+        result = find_mmproj_for_model(gemma_model)
+
+        assert result == gemma_proj.resolve()
+
     def test_non_gguf_siblings_ignored(self, tmp_path: Path) -> None:
         """Given non-GGUF siblings, they are not considered."""
         model = tmp_path / "model.gguf"

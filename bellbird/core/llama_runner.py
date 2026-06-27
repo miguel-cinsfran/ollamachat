@@ -158,13 +158,34 @@ def _get_standard_paths() -> list[str]:
     return paths
 
 
+def _is_mmproj_name(name: str) -> bool:
+    """Return True if the filename is a multimodal projector, not a chat model.
+
+    mmproj files share the .gguf extension but cannot be loaded as a model.
+    They are filtered out of scan results so they don't appear in the selector.
+    """
+    return "mmproj" in name.lower()
+
+
+# Scan depth per index in _get_standard_paths():
+# 0 = ~/models       → depth 2: catches model/subdir/model.gguf
+# 1 = ~/Downloads    → depth 0: root only — avoid crawling user files
+# 2 = HF cache       → depth 5: deep snapshots/.../model.gguf
+# 3 = LM Studio      → depth 2: LM Studio organises in subdirs
+# 4 = GPT4All        → depth 0: flat layout
+_STANDARD_PATH_DEPTHS: list[int] = [2, 0, 5, 2, 0]
+
+
 def find_gguf_models(extra_paths: list[str] | None = None) -> list[str]:
     """Scan standard locations for .gguf model files.
 
     On Windows, scans the standard paths (returned by
     :func:`_get_standard_paths`) plus any caller-provided ``extra_paths``.
-    The HuggingFace cache is scanned recursively to depth 5; all other
-    locations are scanned non-recursively.
+    Each standard path has a configured scan depth (see ``_STANDARD_PATH_DEPTHS``);
+    ``~/models`` and LM Studio are recursive to depth 2, the HuggingFace cache
+    to depth 5, and ``~/Downloads`` / GPT4All to depth 0 (root only).
+    mmproj files are excluded — they share the .gguf extension but are vision
+    projectors, not loadable chat models.
 
     On non-Windows, returns [] (per REQ-LLAMA-006: the function is
     platform-aware and the standard Windows paths are absent on Linux
@@ -181,48 +202,41 @@ def find_gguf_models(extra_paths: list[str] | None = None) -> list[str]:
     if not _is_windows():
         return []
 
-    # Build (path, recursive) list. The HuggingFace cache is at index 2
-    # in the standard paths and is the only recursive one.
-    paths_to_scan: list[tuple[str, bool]] = [
-        (p, i == 2) for i, p in enumerate(_get_standard_paths())
+    paths_to_scan: list[tuple[str, int]] = [
+        (p, _STANDARD_PATH_DEPTHS[i] if i < len(_STANDARD_PATH_DEPTHS) else 2)
+        for i, p in enumerate(_get_standard_paths())
     ]
     if extra_paths:
         for p in extra_paths:
-            paths_to_scan.append((p, False))
+            paths_to_scan.append((p, 2))
 
     collected: set[str] = set()
-    for dir_path, recursive in paths_to_scan:
+    for dir_path, max_depth in paths_to_scan:
         if not os.path.isdir(dir_path):
             continue
-        if recursive:
-            _scan_recursive_os(dir_path, collected, current_depth=0, max_depth=5)
-        else:
-            _scan_non_recursive_os(dir_path, collected)
+        _scan_recursive_os(dir_path, collected, current_depth=0, max_depth=max_depth)
 
     return sorted(collected, key=lambda p: os.path.basename(p).lower())
-
-
-def _scan_non_recursive_os(dir_path: str, collected: set[str]) -> None:
-    """Add .gguf files from a single directory (non-recursive)."""
-    try:
-        with os.scandir(dir_path) as it:
-            for entry in it:
-                if entry.is_file() and entry.name.lower().endswith(".gguf"):
-                    collected.add(os.path.abspath(entry.path))
-    except OSError:
-        pass
 
 
 def _scan_recursive_os(
     dir_path: str, collected: set[str], current_depth: int, max_depth: int
 ) -> None:
-    """Recursively add .gguf files, up to a given depth."""
+    """Recursively add .gguf model files up to max_depth levels of subdirs.
+
+    mmproj files are skipped — they share the .gguf extension but are vision
+    projectors, not loadable models. max_depth=0 scans only the given dir.
+    """
     if current_depth > max_depth:
         return
     try:
         with os.scandir(dir_path) as it:
             for entry in it:
-                if entry.is_file() and entry.name.lower().endswith(".gguf"):
+                if (
+                    entry.is_file()
+                    and entry.name.lower().endswith(".gguf")
+                    and not _is_mmproj_name(entry.name)
+                ):
                     collected.add(os.path.abspath(entry.path))
                 elif entry.is_dir() and current_depth < max_depth:
                     _scan_recursive_os(

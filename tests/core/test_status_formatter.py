@@ -47,13 +47,13 @@ class TestSessionSnapshot:
         with pytest.raises(dataclasses.FrozenInstanceError):
             snap.is_generating = True
 
-    def test_default_set_has_12_names(self):
+    def test_default_set_has_13_names(self):
         """GIVEN DEFAULT_STATUS_TOGGLES
-        THEN it is a tuple of 12 strings (persona added after model_name)."""
+        THEN it is a tuple of 13 strings (vision added after persona)."""
         assert isinstance(DEFAULT_STATUS_TOGGLES, tuple)
-        assert len(DEFAULT_STATUS_TOGGLES) == 12
+        assert len(DEFAULT_STATUS_TOGGLES) == 13
         expected = [
-            "model_name", "persona", "context_pct", "max_tokens", "server",
+            "model_name", "persona", "vision", "context_pct", "max_tokens", "server",
             "vram", "fit", "message_count", "temperature", "top_p",
             "tok_per_s", "is_generating",
         ]
@@ -64,6 +64,7 @@ class TestSessionSnapshot:
         THEN order matches the spec and is deterministic."""
         assert DEFAULT_STATUS_TOGGLES[0] == "model_name"
         assert DEFAULT_STATUS_TOGGLES[-1] == "is_generating"
+        assert "vision" in DEFAULT_STATUS_TOGGLES
 
     def test_all_none_data_constructible(self):
         """GIVEN SessionSnapshot with all-None fields where allowed
@@ -131,7 +132,7 @@ class TestFormatStatusDeterminism:
         assert result == ""
 
 
-# ─── Individual toggle tests (DEFAULT_STATUS_TOGGLES × 12 + extras) ──────────
+# ─── Individual toggle tests (DEFAULT_STATUS_TOGGLES × 13 + extras) ──────────
 
 
 def _make_full_snapshot() -> SessionSnapshot:
@@ -178,6 +179,16 @@ class TestFormatStatusToggles:
         # Default persona "" must be omitted even when the toggle is on.
         result = format_status(self.SNAP, {"persona"}, "short")
         assert "Persona" not in result
+
+    def test_vision_on(self):
+        snap = dataclasses.replace(self.SNAP, vision_capable=True)
+        result = format_status(snap, {"vision"}, "short")
+        assert "Visión" in result
+
+    def test_vision_off_omitted(self):
+        # Default vision_capable=False must be omitted even when toggle is on.
+        result = format_status(self.SNAP, {"vision"}, "short")
+        assert "Visión" not in result
 
     def test_context_pct_on(self):
         result = format_status(self.SNAP, {"context_pct"}, "short")

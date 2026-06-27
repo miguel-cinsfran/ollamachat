@@ -1153,6 +1153,7 @@ class PreferencesDialog(wx.Dialog):
         toggle_labels: dict[str, str] = {
             "model_name": "&Modelo",
             "persona": "&Persona activa",
+            "vision": "&Visión (imágenes)",
             "context_pct": "&Porcentaje de contexto",
             "max_tokens": "&Máx tokens/respuesta",
             "server": "&Servidor",

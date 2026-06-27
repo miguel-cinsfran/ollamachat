@@ -98,8 +98,7 @@ class TestLlamaRunner:
         assert "phi-3.gguf" in result[0]
 
     def test_find_gguf_models_respects_recursive_depth(self, tmp_path):
-        """The HuggingFace cache (3rd standard path) is scanned recursively
-        to depth 5; extra_paths and other standard paths are non-recursive."""
+        """The HuggingFace cache (3rd standard path) is scanned to depth 5."""
         # Create structure at depths 1, 3, 5, 7
         (tmp_path / "depth1.gguf").write_text("")
         d3 = tmp_path / "a" / "b" / "c"
@@ -114,7 +113,7 @@ class TestLlamaRunner:
 
         from bellbird.core.llama_runner import find_gguf_models
 
-        # Make the recursive HF cache (index 2) point at our tmp_path.
+        # Make the HF cache (index 2, depth=5) point at our tmp_path.
         # Other standard paths are non-existent and will be skipped.
         standard = ["/nonexistent", "/nonexistent", str(tmp_path), "/nonexistent"]
         with patch(
@@ -131,6 +130,63 @@ class TestLlamaRunner:
         assert "depth3.gguf" in basenames
         assert "depth5.gguf" in basenames
         assert "depth7.gguf" not in basenames
+
+    def test_find_gguf_models_models_dir_recursive_to_depth2(self, tmp_path):
+        """~/models (index 0) is scanned to depth 2 so subdir models are found."""
+        (tmp_path / "root.gguf").write_text("")
+        sub = tmp_path / "qwen3vl-uncensored"
+        sub.mkdir()
+        (sub / "Qwen3-VL-8B-Q4_K_M.gguf").write_text("")
+        deep = sub / "nested"
+        deep.mkdir()
+        (deep / "model-depth2.gguf").write_text("")
+        too_deep = deep / "extra"
+        too_deep.mkdir()
+        (too_deep / "model-depth3.gguf").write_text("")
+
+        from bellbird.core.llama_runner import find_gguf_models
+
+        # index 0 = ~/models → depth 2
+        standard = [str(tmp_path), "/nonexistent", "/nonexistent"]
+        with patch(
+            "bellbird.core.llama_runner._is_windows", return_value=True
+        ), patch(
+            "bellbird.core.llama_runner._get_standard_paths",
+            return_value=standard,
+        ):
+            result = find_gguf_models()
+
+        basenames = [os.path.basename(p) for p in result]
+        assert "root.gguf" in basenames
+        assert "Qwen3-VL-8B-Q4_K_M.gguf" in basenames
+        assert "model-depth2.gguf" in basenames
+        assert "model-depth3.gguf" not in basenames
+
+    def test_find_gguf_models_excludes_mmproj(self, tmp_path):
+        """mmproj files are excluded from the model list even though they are .gguf."""
+        (tmp_path / "model.gguf").write_text("")
+        (tmp_path / "mmproj-F16.gguf").write_text("")
+        sub = tmp_path / "subdir"
+        sub.mkdir()
+        (sub / "submodel.gguf").write_text("")
+        (sub / "submodel-mmproj-F16.gguf").write_text("")
+
+        from bellbird.core.llama_runner import find_gguf_models
+
+        standard = [str(tmp_path), "/nonexistent", "/nonexistent"]
+        with patch(
+            "bellbird.core.llama_runner._is_windows", return_value=True
+        ), patch(
+            "bellbird.core.llama_runner._get_standard_paths",
+            return_value=standard,
+        ):
+            result = find_gguf_models()
+
+        basenames = [os.path.basename(p) for p in result]
+        assert "model.gguf" in basenames
+        assert "submodel.gguf" in basenames
+        assert "mmproj-F16.gguf" not in basenames
+        assert "submodel-mmproj-F16.gguf" not in basenames
 
     def test_find_gguf_models_is_windows_guard(self):
         """When _is_windows returns False, find_gguf_models returns [] regardless

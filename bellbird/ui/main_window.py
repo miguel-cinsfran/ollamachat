@@ -171,6 +171,7 @@ class MainWindow(wx.Frame):
         # Must be defined before _build_menu() which uses them for Append() IDs.
         self.ID_START_SERVER = wx.NewIdRef()
         self.ID_STOP_SERVER = wx.NewIdRef()
+        self.ID_MMPROJ_SELECT = wx.NewIdRef()
 
         # Keymap accelerator IDs — populated by _build_accelerators, reused on rebuild.
         # start_server/stop_server use the existing IDs so menu items keep working.
@@ -464,6 +465,13 @@ class MainWindow(wx.Frame):
             "Buscar modelos .gguf en el sistema",
         )
         # Bound to _scan_models via wx.ID_REFRESH in _build_accelerators
+
+        servidor_menu.AppendSeparator()
+        menu_mmproj = servidor_menu.Append(
+            self.ID_MMPROJ_SELECT, "Seleccionar mm&proj para modelo actual...",
+            "Asignar archivo mmproj al modelo cargado (necesario para imágenes/visión)",
+        )
+        self.Bind(wx.EVT_MENU, lambda evt: self._on_select_mmproj(), menu_mmproj)
 
         menu_bar.Append(servidor_menu, "&Servidor")
 
@@ -997,6 +1005,45 @@ class MainWindow(wx.Frame):
             vision_flag = ok and (mmproj_path is not None)
             wx.CallAfter(self._on_start_server_done, ok, message, vision_flag)
 
+    def _on_select_mmproj(self) -> None:
+        """Open a file dialog to assign an mmproj to the currently loaded model.
+
+        Opt-in only — never called automatically on model load (that was
+        the 'bug madre' that showed the dialog on every load).
+        """
+        model_path = self.get_model()
+        if not model_path:
+            self._speech.speak("No hay modelo seleccionado.", interrupt=True)
+            return
+        basename = Path(model_path).name
+        default_dir = str(Path(model_path).parent) if Path(model_path).is_file() else str(Path.home() / "models")
+        dlg = wx.FileDialog(
+            self,
+            message=f"Seleccionar mmproj para {Path(model_path).stem}",
+            defaultDir=default_dir,
+            wildcard="Archivos GGUF (*.gguf)|*.gguf",
+            style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST,
+        )
+        if dlg.ShowModal() != wx.ID_OK:
+            dlg.Destroy()
+            return
+        mmproj_path = dlg.GetPath()
+        dlg.Destroy()
+        if Path(mmproj_path).resolve() == Path(model_path).resolve():
+            self._speech.speak("El mmproj no puede ser el mismo archivo que el modelo.", interrupt=True)
+            return
+        self._config.model_mmproj[basename] = str(Path(mmproj_path).resolve())
+        try:
+            from bellbird.core.config import save_config
+            save_config(self._config)
+        except Exception:
+            get_logger().exception("_on_select_mmproj: failed to save config")
+        stem = Path(mmproj_path).stem
+        self._speech.speak(
+            f"mmproj guardado: {stem}. Recarga el modelo para activar visión.",
+            interrupt=True,
+        )
+
     def _make_announce_timer(
         self, phrase: str = "Cargando modelo, por favor espera..."
     ) -> "_PeriodicAnnouncer":
@@ -1047,7 +1094,8 @@ class MainWindow(wx.Frame):
                 # output() = voz + braille, so the model name reaches a braille
                 # display. Safe now that the clobbering _scan_models() re-announce
                 # is gone.
-                self._speech.output(f"Servidor listo. Modelo {Path(loaded).stem}")
+                vision_suffix = " con visión" if vision_capable else ""
+                self._speech.output(f"Servidor listo. Modelo {Path(loaded).stem}{vision_suffix}")
             else:
                 self._speech.output("Servidor listo")
             self._notifier.notify("server_ready", "Servidor listo")
@@ -1352,6 +1400,7 @@ class MainWindow(wx.Frame):
             max_tokens=self._config.max_tokens,
             is_generating=self._is_generating,
             persona=self._active_persona_name,
+            vision_capable=self._vision_capable,
         )
 
         toggles = self._config.status_toggles_as_set()

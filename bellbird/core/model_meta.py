@@ -26,20 +26,29 @@ class GGUFMetadata:
     size_bytes: int | None = None
 
 
+def _mmproj_name_prefix(name: str) -> str:
+    """Extract the model-name prefix from an mmproj filename (lowercase).
+
+    E.g. ``"GLM-4.6V-Flash-mmproj-F16.gguf"`` → ``"glm-4.6v-flash-"``.
+    Returns ``""`` if "mmproj" does not appear in the name.
+    """
+    lower = name.lower()
+    idx = lower.find("mmproj")
+    if idx <= 0:
+        return ""
+    return lower[:idx].rstrip("-_.")
+
+
 def find_mmproj_for_model(model_path: Path) -> Path | None:
     """Auto-detect an mmproj sibling file in the same directory as *model_path*.
 
     Patterns are checked in priority order (first match wins):
-    1. ``mmproj-*.gguf`` — highest priority prefix
-    2. ``*mmproj*.gguf`` — contains "mmproj"
-    3. ``*.mmproj.gguf`` — lowest priority suffix
-
-    Within a pattern, results are sorted alphabetically and the first
-    match is returned. **Pattern 1 refuses to auto-pick when there are
-    multiple matches** (returns ``None``) because picking the wrong
-    projector silently breaks image handling for blind users. Patterns
-    2 and 3 return the first alphabetical match without the multi-match
-    guard.
+    0. Name-prefix match: mmproj whose name starts with the model's base name.
+       Handles co-located multi-mmproj directories (e.g. ``~/models/``).
+    1. ``mmproj-*.gguf`` — generic prefix, multi-match guard (returns ``None``
+       when ambiguous to protect blind users from a wrong projector).
+    2. ``*mmproj*.gguf`` — contains "mmproj" anywhere.
+    3. ``*.mmproj.gguf`` — lowest priority suffix.
 
     Args:
         model_path: Path to the model .gguf file.
@@ -53,6 +62,19 @@ def find_mmproj_for_model(model_path: Path) -> Path | None:
         return None
 
     model_name = model_path.resolve().name
+    model_lower = model_name.lower()
+
+    # Pattern 0: name-prefix match.
+    # Find mmproj files whose name-before-"mmproj" is a prefix of the model name.
+    # E.g. "GLM-4.6V-Flash-mmproj-F16.gguf" has prefix "glm-4.6v-flash-" which
+    # matches model "GLM-4.6V-Flash-Q4_K_M.gguf". Single match wins; multiple
+    # matches fall through (ambiguous).
+    pattern0 = sorted(
+        p for p in parent.glob("*mmproj*.gguf")
+        if p.name != model_name and _mmproj_name_prefix(p.name) and model_lower.startswith(_mmproj_name_prefix(p.name))
+    )
+    if len(pattern0) == 1:
+        return pattern0[0].resolve()
 
     # Pattern 1: mmproj-*.gguf (highest priority, multi-match guard)
     pattern1 = sorted(p for p in parent.glob("mmproj-*.gguf") if p.name != model_name)
@@ -61,7 +83,7 @@ def find_mmproj_for_model(model_path: Path) -> Path | None:
     if len(pattern1) > 1:
         return None  # Refuse to auto-pick — blind users must never get a wrong projector
 
-    # Pattern 2: *mmproj*.gguf (contains "mmproj" anywhere)
+    # Pattern 2: *mmproj*.gguf (contains "mmproj" anywhere, alphabetical tiebreak)
     pattern2 = sorted(
         p for p in parent.glob("*mmproj*.gguf")
         if p.name != model_name and not p.name.startswith("mmproj-")

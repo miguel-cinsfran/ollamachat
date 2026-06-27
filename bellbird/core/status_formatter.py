@@ -62,6 +62,7 @@ class SessionSnapshot:
     max_tokens: int
     is_generating: bool
     persona: str = ""
+    vision_capable: bool = False
 
 
 # ─── Default status toggles ───────────────────────────────────────────────────
@@ -71,6 +72,7 @@ class SessionSnapshot:
 DEFAULT_STATUS_TOGGLES: tuple[str, ...] = (
     "model_name",
     "persona",
+    "vision",
     "context_pct",
     "max_tokens",
     "server",
@@ -168,6 +170,11 @@ def _render_component(
         if not snap.persona:
             return ""
         return f"Persona: {snap.persona}"
+
+    elif name == "vision":
+        if not snap.vision_capable:
+            return ""
+        return "Visión activa"
 
     elif name == "context_pct":
         return _render_context_pct(snap, mode)
