@@ -63,6 +63,7 @@ class SessionSnapshot:
     is_generating: bool
     persona: str = ""
     vision_capable: bool = False
+    server_backend: str = ""  # "GPU CUDA", "GPU Vulkan", or "" (system/CPU)
 
 
 # ─── Default status toggles ───────────────────────────────────────────────────
@@ -190,7 +191,8 @@ def _render_component(
             "stopped": "Detenido",
         }
         label = state_map.get(snap.server_state, snap.server_state)
-        return f"Servidor {label}" if mode == "short" else f"Servidor: {label}"
+        backend = f" ({snap.server_backend})" if snap.server_backend else ""
+        return f"Servidor {label}{backend}" if mode == "short" else f"Servidor: {label}{backend}"
 
     elif name == "vram":
         if snap.vram_free_mb is None or snap.vram_total_mb is None:

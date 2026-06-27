@@ -168,11 +168,14 @@ class MainWindow(wx.Frame):
         self._context_warned_for_turn: bool = False
         self._last_f2_mono: float | None = None
         self._meter_threshold_fired: bool = False
+        self._downloading_gpu: bool = False
+        self._gpu_progress_dlg: "wx.ProgressDialog | None" = None
 
         # Must be defined before _build_menu() which uses them for Append() IDs.
         self.ID_START_SERVER = wx.NewIdRef()
         self.ID_STOP_SERVER = wx.NewIdRef()
         self.ID_MMPROJ_SELECT = wx.NewIdRef()
+        self.ID_CLEAR_MMPROJ = wx.NewIdRef()
         self.ID_DOWNLOAD_GPU = wx.NewIdRef()
         self.ID_USE_SYSTEM_SERVER = wx.NewIdRef()
 
@@ -475,6 +478,12 @@ class MainWindow(wx.Frame):
             "Asignar archivo mmproj al modelo cargado (necesario para imágenes/visión)",
         )
         self.Bind(wx.EVT_MENU, lambda evt: self._on_select_mmproj(), menu_mmproj)
+
+        menu_clear_mmproj = servidor_menu.Append(
+            self.ID_CLEAR_MMPROJ, "&Quitar mmproj del modelo actual",
+            "Eliminar la asignación de mmproj guardada para el modelo seleccionado",
+        )
+        self.Bind(wx.EVT_MENU, lambda evt: self._on_clear_mmproj(), menu_clear_mmproj)
 
         servidor_menu.AppendSeparator()
         menu_download_gpu = servidor_menu.Append(
@@ -1074,38 +1083,63 @@ class MainWindow(wx.Frame):
         variant: "cuda" → CUDA 13.3 (~550 MB, NVIDIA only, fastest)
                  "vulkan" → Vulkan (~32 MB, NVIDIA/AMD/Intel)
         """
+        if self._downloading_gpu:
+            self._speech.speak("Hay una descarga en progreso, espere...", interrupt=True)
+            return
+
         import os as _os
         local = _os.environ.get("LOCALAPPDATA", str(Path.home()))
         if variant == "cuda":
             dest_dir = Path(local) / "Bellbird" / "llama-server-cuda"
-            size_hint = "unos 550 megabytes (binario CUDA más runtime)"
             label = "CUDA (RTX)"
-            cuda_ver = "cuda-13.3"
+            variant_key = "cuda-13.3"
+            title_hint = "~550 MB"
         else:
             dest_dir = Path(local) / "Bellbird" / "llama-server-vulkan"
-            size_hint = "unos 32 megabytes"
             label = "Vulkan (GPU)"
-            cuda_ver = "vulkan"
+            variant_key = "vulkan"
+            title_hint = "~32 MB"
 
         exe_path = dest_dir / "llama-server.exe"
         if exe_path.exists() and self._config.llama_server_path == str(exe_path):
             self._speech.speak(f"La versión {label} ya está activa.", interrupt=True)
             return
 
-        self._speech.speak(
-            f"Descargando llama-server {label}, {size_hint}. "
-            "Esto puede tardar varios minutos...",
-            interrupt=True,
+        self._downloading_gpu = True
+
+        self._gpu_progress_dlg = wx.ProgressDialog(
+            f"Descargando llama-server {label} ({title_hint})",
+            "Conectando con GitHub...",
+            maximum=100,
+            parent=self,
+            style=wx.PD_APP_MODAL | wx.PD_ELAPSED_TIME,
         )
 
+        def _progress_cb(lbl: str, done: int, total: int) -> None:
+            if total > 0:
+                msg = f"{lbl}: {done // 1_000_000} MB / {total // 1_000_000} MB"
+            else:
+                msg = lbl
+            wx.CallAfter(self._pulse_gpu_progress, msg)
+
         def _worker() -> None:
-            ok, result = download_server_binary(cuda_ver, dest_dir)
+            ok, result = download_server_binary(variant_key, dest_dir, progress_cb=_progress_cb)
             wx.CallAfter(self._on_download_gpu_done, ok, result, label)
 
         threading.Thread(target=_worker, daemon=True).start()
 
+    def _pulse_gpu_progress(self, msg: str) -> None:
+        """Update the download progress dialog (called on UI thread via CallAfter)."""
+        if self._gpu_progress_dlg is not None:
+            self._gpu_progress_dlg.Pulse(msg)
+
     def _on_download_gpu_done(self, ok: bool, result: str, label: str = "GPU") -> None:
         """Called on the UI thread when the GPU binary download finishes."""
+        self._downloading_gpu = False
+        if self._gpu_progress_dlg is not None:
+            self._gpu_progress_dlg.Destroy()
+            self._gpu_progress_dlg = None
+
         if not ok:
             self._speech.speak(f"Error al descargar: {result}", interrupt=True)
             return
@@ -1138,6 +1172,31 @@ class MainWindow(wx.Frame):
 
         self._speech.speak(
             "Volviendo al llama-server del sistema (instalado por winget, solo CPU).",
+            interrupt=True,
+        )
+
+    def _on_clear_mmproj(self) -> None:
+        """Remove the saved mmproj assignment for the currently selected model."""
+        model_path = self.get_model()
+        if not model_path:
+            self._speech.speak("No hay modelo seleccionado.", interrupt=True)
+            return
+        basename = Path(model_path).name
+        if basename not in self._config.model_mmproj:
+            self._speech.speak(
+                f"El modelo {Path(model_path).stem} no tiene mmproj asignado.",
+                interrupt=True,
+            )
+            return
+        del self._config.model_mmproj[basename]
+        try:
+            from bellbird.core.config import save_config
+            save_config(self._config)
+        except Exception:
+            get_logger().exception("_on_clear_mmproj: failed to save config")
+        self._speech.speak(
+            f"mmproj eliminado de {Path(model_path).stem}. "
+            "El modelo cargará sin visión hasta que asignes otro.",
             interrupt=True,
         )
 
@@ -1456,6 +1515,18 @@ class MainWindow(wx.Frame):
         except Exception:
             self._active_persona_name = pid
 
+    def _active_server_backend(self) -> str:
+        """Return a short label for the active llama-server backend, or ''."""
+        path = self._config.llama_server_path
+        if not path:
+            return ""
+        parent = Path(path).parent.name.lower()
+        if "cuda" in parent:
+            return "GPU CUDA"
+        if "vulkan" in parent:
+            return "GPU Vulkan"
+        return ""
+
     def _announce_session_status(self) -> None:
         """Announce the current session status via speech (F2).
 
@@ -1507,6 +1578,7 @@ class MainWindow(wx.Frame):
             is_generating=self._is_generating,
             persona=self._active_persona_name,
             vision_capable=self._vision_capable,
+            server_backend=self._active_server_backend(),
         )
 
         toggles = self._config.status_toggles_as_set()

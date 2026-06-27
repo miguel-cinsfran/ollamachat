@@ -74,21 +74,22 @@ class TestFindMmprojForModel:
 
         assert result == proj.resolve()
 
-    def test_alphabetical_tiebreak(self, tmp_path: Path) -> None:
-        """Given multiple mmproj- match IN the same pattern returns None (refuse),
-        but for pattern 2 where multi is allowed, returns alphabetical first."""
+    def test_pattern2_multi_match_returns_none(self, tmp_path: Path) -> None:
+        """Pattern 2 with multiple *mmproj* matches refuses and returns None.
+
+        This protects non-vision models in shared directories (e.g. ~/models/)
+        where multiple named mmproj files coexist — none of which belongs to
+        the model being loaded.
+        """
         model = tmp_path / "model.gguf"
         model.write_text("")
-        # Pattern 2 matches: *mmproj* (no mmproj- prefix)
-        a_proj = tmp_path / "a-mmproj-v1.gguf"
-        a_proj.write_text("")
-        b_proj = tmp_path / "b-mmproj-v2.gguf"
-        b_proj.write_text("")
+        (tmp_path / "a-mmproj-v1.gguf").write_text("")
+        (tmp_path / "b-mmproj-v2.gguf").write_text("")
         from bellbird.core.model_meta import find_mmproj_for_model
 
         result = find_mmproj_for_model(model)
 
-        assert result == a_proj.resolve()
+        assert result is None
 
     def test_pattern0_prefix_match_single(self, tmp_path: Path) -> None:
         """Pattern 0: mmproj named with model prefix is auto-detected.

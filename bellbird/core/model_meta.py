@@ -83,12 +83,14 @@ def find_mmproj_for_model(model_path: Path) -> Path | None:
     if len(pattern1) > 1:
         return None  # Refuse to auto-pick — blind users must never get a wrong projector
 
-    # Pattern 2: *mmproj*.gguf (contains "mmproj" anywhere, alphabetical tiebreak)
+    # Pattern 2: *mmproj*.gguf — single unambiguous match only.
+    # Multiple matches (e.g. GLM-mmproj + Gemma-mmproj in ~/models/) are refused
+    # so a non-vision model in a shared directory never gets a wrong projector.
     pattern2 = sorted(
         p for p in parent.glob("*mmproj*.gguf")
         if p.name != model_name and not p.name.startswith("mmproj-")
     )
-    if len(pattern2) >= 1:
+    if len(pattern2) == 1:
         return pattern2[0].resolve()
 
     # Pattern 3: *.mmproj.gguf (suffix, lowest priority)
