@@ -74,3 +74,36 @@ class SoundPlayer:
             )
         except Exception:
             pass
+
+    def play_loop(self, event: str) -> None:
+        """Play the WAV for *event* on repeat until :meth:`stop` is called.
+
+        Uses ``SND_LOOP | SND_ASYNC`` (Windows). Designed for seamless-loop
+        assets like ``connecting``. Silent no-op outside win32, on missing
+        file/winsound, or ``theme="none"``. Never raises.
+        """
+        if sys.platform != "win32":
+            return
+        path = self._resolve(event)
+        if path is None or not path.is_file():
+            return
+        try:
+            import winsound
+
+            winsound.PlaySound(
+                str(path),
+                winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_LOOP,
+            )
+        except Exception:
+            pass
+
+    def stop(self) -> None:
+        """Stop any async/looping sound currently playing. Never raises."""
+        if sys.platform != "win32":
+            return
+        try:
+            import winsound
+
+            winsound.PlaySound(None, winsound.SND_PURGE)
+        except Exception:
+            pass

@@ -11,6 +11,8 @@ Usage:
 
 from typing import Any
 
+from bellbird.core.logger import get_logger
+
 
 class Speech:
     """Text-to-speech wrapper with never-crash semantics.
@@ -27,15 +29,23 @@ class Speech:
         self._output: Any = None
         self.is_silent: bool = True
         self._buffer: str = ""
+        self._log = get_logger()
 
         try:
             from accessible_output2.outputs.auto import Auto
 
             self._output = Auto()
             self.is_silent = False
-        except Exception:
+            self._log.info(
+                "Speech: backend ready (%s)", type(self._output).__name__
+            )
+        except Exception as e:
             self._output = None
             self.is_silent = True
+            self._log.warning(
+                "Speech: no TTS backend (%s: %s) — silent mode",
+                type(e).__name__, e,
+            )
 
     def is_screen_reader_active(self) -> bool:
         """Return True if a real screen reader (NVDA, JAWS, etc.) is active.
@@ -59,10 +69,13 @@ class Speech:
             interrupt: True to interrupt current speech, False to queue.
         """
         try:
+            self._log.debug("speak(interrupt=%s): %r", interrupt, text[:160])
             if self._output is not None:
                 self._output.speak(text, interrupt=interrupt)
-        except Exception:
-            pass
+            else:
+                self._log.debug("speak: no backend (silent mode), dropped")
+        except Exception as e:
+            self._log.warning("speak failed (%s: %s)", type(e).__name__, e)
 
     def output(self, text: str) -> None:
         """Send text to both speech and braille display.
@@ -71,10 +84,13 @@ class Speech:
             text: Text to output.
         """
         try:
+            self._log.debug("output: %r", text[:160])
             if self._output is not None:
                 self._output.output(text)
-        except Exception:
-            pass
+            else:
+                self._log.debug("output: no backend (silent mode), dropped")
+        except Exception as e:
+            self._log.warning("output failed (%s: %s)", type(e).__name__, e)
 
     def stop(self) -> None:
         """Stop any current speech output."""

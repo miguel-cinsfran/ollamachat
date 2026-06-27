@@ -16,7 +16,7 @@ class TestWxToastSender:
 
     def test_instantiate_and_show(self):
         """Instantiate WxToastSender and call show() — no crash."""
-        app = wx.App()
+        app = wx.GetApp()
         frame = wx.Frame(None)
         try:
             from bellbird.ui.wx_notifier import WxToastSender

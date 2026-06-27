@@ -437,6 +437,40 @@ class TestLlamaClient:
         assert on_done.call_count == 1
         assert on_error.call_count == 0
 
+    def test_chat_stream_empty_choices_usage_chunk_no_indexerror(
+        self, mock_session, mock_call_after
+    ):
+        """Final chunk with ``"choices": []`` must not raise IndexError.
+
+        With ``stream_options.include_usage`` (the F2 context meter) llama.cpp
+        sends a terminal chunk whose ``choices`` is an EMPTY LIST carrying only
+        ``usage``. ``chunk.get("choices", [{}])[0]`` only falls back when the
+        key is absent, so ``[][0]`` raised "IndexError: list index out of range"
+        on every generation. This pins the empty-list handling.
+        """
+        self._stub_stream(mock_session, [
+            b'data: {"choices":[{"delta":{"content":"hola"}}]}',
+            b'data: {"choices":[],"usage":{"prompt_tokens":3,"completion_tokens":1,"total_tokens":4}}',
+            b'data: [DONE]',
+        ])
+
+        from bellbird.core.llama_client import LlamaClient
+
+        client = LlamaClient(session=mock_session)
+        on_token = Mock()
+        on_done = Mock()
+        on_error = Mock()
+        on_usage = Mock()
+
+        client.chat_stream([], {}, on_token, on_done, on_error, on_usage=on_usage)
+        time.sleep(0.1)
+
+        assert on_error.call_count == 0, on_error.call_args
+        assert on_token.call_count == 1
+        assert on_done.call_count == 1
+        assert on_usage.call_count == 1
+        assert on_usage.call_args[0][0]["total_tokens"] == 4
+
     def test_chat_stream_no_error_when_usage_absent(self, mock_session, mock_call_after):
         """Given a stream with no usage key, no error and normal callbacks fire."""
         self._stub_stream(mock_session, [

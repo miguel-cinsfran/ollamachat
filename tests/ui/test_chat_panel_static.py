@@ -396,15 +396,16 @@ def test_append_tool_denied_method_exists():
 
 
 def test_no_emoji_in_tool_prefixes():
-    """Tool prefixes [Herramienta], [Bloqueado], [Denegado] are pure ASCII."""
+    """Tool prefixes [Comando], [Resultado], [Bloqueado], [Denegado] are ASCII."""
     source_path = _get_ui_path("chat_panel.py")
     source = source_path.read_text(encoding="utf-8")
-    assert "[Herramienta]" in source, "[Herramienta] prefix not found"
+    assert "[Comando]" in source, "[Comando] prefix not found"
+    assert "[Resultado]" in source, "[Resultado] prefix not found"
     assert "[Bloqueado]" in source, "[Bloqueado] prefix not found"
     assert "[Denegado]" in source, "[Denegado] prefix not found"
 
     # Check they're pure ASCII
-    for prefix in ("[Herramienta]", "[Bloqueado]", "[Denegado]"):
+    for prefix in ("[Comando]", "[Resultado]", "[Bloqueado]", "[Denegado]"):
         assert prefix.isascii(), f"{prefix} contains non-ASCII characters"
 
 

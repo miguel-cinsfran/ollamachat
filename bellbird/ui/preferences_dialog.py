@@ -118,7 +118,8 @@ HINTS = {
     "pref_ctx_size_spin":
         "Tamaño del contexto en tokens. Rango: 512 a 131072.",
     "pref_gpu_layers_spin":
-        "Capas GPU (0 = CPU, 99 = todas). Rango: 0 a 200.",
+        "Capas del modelo en la GPU. -1 = automático (recomendado: llama.cpp "
+        "ajusta cuántas caben en la VRAM); 0 = solo CPU; 99 = todas. Rango: -1 a 200.",
     "pref_port_spin":
         "Puerto del servidor llama-server. Rango: 1024 a 65535.",
 
@@ -545,7 +546,7 @@ class PreferencesDialog(wx.Dialog):
 
         # ── Temperature slider ─────────────────────────────────────────
         sizer.Add(
-            wx.StaticText(panel, label="&Temperatura:"),
+            wx.StaticText(panel, label="&Temperatura (creatividad: bajo = preciso, alto = creativo):"),
             flag=wx.LEFT | wx.TOP, border=8,
         )
         temp_sizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -587,7 +588,7 @@ class PreferencesDialog(wx.Dialog):
 
         # ── Max tokens ─────────────────────────────────────────────────
         sizer.Add(
-            wx.StaticText(panel, label="Má&ximo de tokens:"),
+            wx.StaticText(panel, label="Má&ximo de tokens: largo máximo de cada respuesta"),
             flag=wx.LEFT | wx.TOP, border=8,
         )
         self.pref_max_tokens_spin = wx.SpinCtrl(
@@ -759,7 +760,7 @@ class PreferencesDialog(wx.Dialog):
 
         # ── Top-p slider (moved from Modelo) ───────────────────────────
         sizer.Add(
-            wx.StaticText(panel, label="&Top-p:"),
+            wx.StaticText(panel, label="&Top-p (diversidad acumulada de palabras):"),
             flag=wx.LEFT | wx.TOP, border=8,
         )
         top_p_sizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -780,7 +781,7 @@ class PreferencesDialog(wx.Dialog):
 
         # ── Top-k (moved from Modelo) ──────────────────────────────────
         sizer.Add(
-            wx.StaticText(panel, label="Top-&k:"),
+            wx.StaticText(panel, label="Top-&k (cuántas opciones considera por palabra):"),
             flag=wx.LEFT | wx.TOP, border=8,
         )
         self.pref_top_k_spin = wx.SpinCtrl(
@@ -794,7 +795,7 @@ class PreferencesDialog(wx.Dialog):
 
         # ── Repeat penalty slider (moved from Modelo) ──────────────────
         sizer.Add(
-            wx.StaticText(panel, label="&Penalización de repetición:"),
+            wx.StaticText(panel, label="&Penalización de repetición (evita repetir; 1.00 = desactivada):"),
             flag=wx.LEFT | wx.TOP, border=8,
         )
         rp_sizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -843,7 +844,7 @@ class PreferencesDialog(wx.Dialog):
 
         # ── Context size ───────────────────────────────────────────────
         sizer.Add(
-            wx.StaticText(panel, label="Tamaño &de contexto (tokens):"),
+            wx.StaticText(panel, label="Tamaño &de contexto (memoria de la conversación, en tokens):"),
             flag=wx.LEFT | wx.TOP, border=8,
         )
         self.pref_ctx_size_spin = wx.SpinCtrl(
@@ -857,11 +858,11 @@ class PreferencesDialog(wx.Dialog):
 
         # ── GPU layers ─────────────────────────────────────────────────
         sizer.Add(
-            wx.StaticText(panel, label="Capas GPU (0 = CPU, 99 = t&odas):"),
+            wx.StaticText(panel, label="Capas GPU (-1 = automático, 0 = solo CPU, 99 = t&odas):"),
             flag=wx.LEFT | wx.TOP, border=8,
         )
         self.pref_gpu_layers_spin = wx.SpinCtrl(
-            panel, min=0, max=200,
+            panel, min=-1, max=200,
             initial=self._config.n_gpu_layers,
             name="pref_gpu_layers_spin",
         )
@@ -1175,8 +1176,13 @@ class PreferencesDialog(wx.Dialog):
             )
             row_sizer.Add(lbl, flag=wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, border=8)
 
+            # The label MUST live on the CheckBox itself: a screen reader takes
+            # a checkbox's accessible name from its own label, not from a
+            # preceding StaticText (that association only works for edit/combo
+            # controls). Without this, NVDA announced these as unlabeled
+            # checkboxes. The StaticText above stays for visual grouping.
             chk = wx.CheckBox(
-                panel, name=f"chk_{toggle_name}",
+                panel, label=label_text, name=f"chk_{toggle_name}",
             )
             self._apply_hint(chk, f"chk_{toggle_name}")
             chk.SetValue(self._config.status_toggles.get(toggle_name, True))

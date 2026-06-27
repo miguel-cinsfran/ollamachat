@@ -13,14 +13,16 @@ import pytest
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
-# wx.WXK_* integer literals matching wxPython 4.2 canonical values
-# These are defined here so core/ tests don't import wx at all.
-_WXK_F2 = 340
-_WXK_F4 = 342
-_WXK_F5 = 343
-_WXK_F6 = 344
-_WXK_F7 = 345
-_WXK_F8 = 346
+# wx.WXK_* integer literals matching wxPython 4.2 canonical values (VERIFIED:
+# F1=340, F2=341, F3=342, F4=343, F5=344, F6=345, F7=346, F8=347). Defined here
+# so core/ tests don't import wx. These were previously off by one, matching a
+# bug in keymap.py that left F2 mapped to the physical F1 key.
+_WXK_F2 = 341
+_WXK_F4 = 343
+_WXK_F5 = 344
+_WXK_F6 = 345
+_WXK_F7 = 346
+_WXK_F8 = 347
 _WXK_ESCAPE = 27
 _WXK_UP = 315
 _WXK_DOWN = 317

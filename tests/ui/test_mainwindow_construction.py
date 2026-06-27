@@ -18,23 +18,23 @@ import wx
 @pytest.fixture(scope="module")
 def app():
     """Create a wx.App for the test module."""
-    return wx.App()
+    return wx.GetApp()
 
 
 def test_window_shown_before_probe(app):
-    """MainWindow is visible immediately after __init__, before any I/O.
+    """MainWindow can be shown right after __init__, before any I/O completes.
 
-    The startup probe runs on a background thread, so the window should
-    be shown synchronously after the constructor returns.
+    The constructor must NOT block on the startup probe (it runs on a
+    background thread), so the caller — like ``main.py`` — can ``Show()`` the
+    frame immediately and the user sees "Iniciando…" while the probe works.
+    If ``__init__`` blocked on network I/O this construction + Show would hang.
     """
     from bellbird.ui.main_window import MainWindow
 
     frame = MainWindow(None, title="Bellbird")
     try:
-        assert frame.IsShown(), (
-            "MainWindow must be shown (visible) immediately after __init__ "
-            "— the startup probe must run on a background thread."
-        )
+        frame.Show()  # production shows the frame in main.py, post-construction
+        assert frame.IsShown(), "MainWindow must be visible after Show()"
         # Status bar field 0 should say "Iniciando..." until the probe completes
         status_text = frame.status_bar.GetStatusText(0)
         assert "Iniciando" in status_text, (

@@ -22,7 +22,7 @@ import wx
 @pytest.fixture(scope="module")
 def app():
     """Create a wx.App for the test module."""
-    return wx.App()
+    return wx.GetApp()
 
 
 class FakeSpeech:
@@ -173,9 +173,13 @@ class TestRecentsSubmenu:
             return_value=(mock_conv, ""),
         ):
             try:
-                # Click the FIRST item via MagicMock event
+                # recent_files starts as [b, a]; click a.json (NOT at the
+                # front) so the MRU push is observable.
                 evt = MagicMock()
-                evt.GetId.return_value = next(iter(frame._recent_items.keys()))
+                evt.GetId.return_value = next(
+                    mid for mid, p in frame._recent_items.items()
+                    if p == paths[0]
+                )
                 frame._on_recent_click(evt)
 
                 # After clicking, this path should be at the front
@@ -196,8 +200,10 @@ class TestRecentsSubmenu:
                 f"{frame._recents_menu.GetMenuItemCount()}"
             )
             item = frame._recents_menu.FindItemByPosition(0)
-            assert item.GetLabel() == "Sin recientes", (
-                f"Expected 'Sin recientes', got {item.GetLabel()!r}"
+            # wx.MenuItem has no GetLabel() in wxPython 4.2.x; use
+            # GetItemLabelText() (returns the label without mnemonics).
+            assert item.GetItemLabelText() == "Sin recientes", (
+                f"Expected 'Sin recientes', got {item.GetItemLabelText()!r}"
             )
             assert not item.IsEnabled(), "Placeholder item must be disabled"
         finally:
@@ -520,8 +526,9 @@ class TestOnAttachUrl:
         """Mid-generation: speaks guard and returns without opening dialog."""
         frame, config, _, fake_speech = _make_frame(app)
         try:
-            frame._is_generating = True
-            with patch("bellbird.ui.main_window.URLDialog") as mock_dlg:
+            # Production gates on chat_panel._is_generating, not frame's.
+            frame.chat_panel._is_generating = True
+            with patch("bellbird.ui.url_dialog.URLDialog") as mock_dlg:
                 frame._on_attach_url()
                 mock_dlg.assert_not_called()
                 assert "Generación en curso" in fake_speech.last_message, (
@@ -535,8 +542,8 @@ class TestOnAttachUrl:
         """When idle, _on_attach_url opens URLDialog."""
         frame, config, _, fake_speech = _make_frame(app)
         try:
-            frame._is_generating = False
-            with patch("bellbird.ui.main_window.URLDialog") as mock_dlg:
+            frame.chat_panel._is_generating = False
+            with patch("bellbird.ui.url_dialog.URLDialog") as mock_dlg:
                 mock_instance = MagicMock()
                 mock_instance.ShowModal.return_value = wx.ID_CANCEL
                 mock_instance.get_url.return_value = ""
@@ -550,8 +557,8 @@ class TestOnAttachUrl:
         """Empty URL speaks 'URL vacía'."""
         frame, config, _, fake_speech = _make_frame(app)
         try:
-            frame._is_generating = False
-            with patch("bellbird.ui.main_window.URLDialog") as mock_dlg:
+            frame.chat_panel._is_generating = False
+            with patch("bellbird.ui.url_dialog.URLDialog") as mock_dlg:
                 mock_instance = MagicMock()
                 mock_instance.ShowModal.return_value = wx.ID_OK
                 mock_instance.get_url.return_value = ""
@@ -568,8 +575,8 @@ class TestOnAttachUrl:
         """Invalid scheme speaks 'Solo URLs http o https'."""
         frame, config, _, fake_speech = _make_frame(app)
         try:
-            frame._is_generating = False
-            with patch("bellbird.ui.main_window.URLDialog") as mock_dlg:
+            frame.chat_panel._is_generating = False
+            with patch("bellbird.ui.url_dialog.URLDialog") as mock_dlg:
                 mock_instance = MagicMock()
                 mock_instance.ShowModal.return_value = wx.ID_OK
                 mock_instance.get_url.return_value = "ftp://example.com"
@@ -776,6 +783,9 @@ class TestDoubleF2:
         """Single F2 press calls format_status with 'short' mode."""
         frame, config, _, fake_speech = _make_frame(app)
         frame._last_f2_mono = None  # fresh state
+        # Mock the client so the F2 handler does not hit the network.
+        frame._client.get_loaded_model = MagicMock(return_value="TestModel")
+        frame._client.check_state = MagicMock(return_value="ready")
         # Mock time.monotonic to simulate one press
         with patch("bellbird.ui.main_window.time.monotonic") as mock_time:
             mock_time.return_value = 100.0
@@ -794,6 +804,9 @@ class TestDoubleF2:
         frame, config, _, fake_speech = _make_frame(app)
         frame._is_generating = False
         config.status_toggles = {"model_name": True}
+        # F2 reads these caches (not the client) to avoid blocking HTTP.
+        frame._loaded_model_name = "TestModel"
+        frame._server_state_cache = "ready"
         frame._client.get_loaded_model = MagicMock(return_value="TestModel")
         frame._client.check_state = MagicMock(return_value="ready")
         frame._current_n_ctx = 4096
@@ -829,6 +842,13 @@ class TestDoubleF2:
         frame, config, _, fake_speech = _make_frame(app)
         config.status_toggles = {"is_generating": True}
         frame._is_generating = True
+        # Mock the client so _announce_session_status does NOT hit the network.
+        # main_window does `import time`, so patching main_window.time.monotonic
+        # patches the global time module: a real (unmocked) check_state() request
+        # would route urllib3's own time.monotonic() through the side_effect list
+        # and exhaust it (StopIteration). Sibling tests mock the client for this.
+        frame._client.get_loaded_model = MagicMock(return_value="TestModel")
+        frame._client.check_state = MagicMock(return_value="ready")
 
         with patch("bellbird.ui.main_window.time.monotonic") as mock_time:
             mock_time.side_effect = [100.0, 102.0]  # 2s apart
@@ -853,6 +873,9 @@ class TestDoubleF2:
         """
         frame, config, _, fake_speech = _make_frame(app)
         config.status_toggles = {"model_name": True}
+        # F2 reads these caches (not the client) to avoid blocking HTTP.
+        frame._loaded_model_name = "TestModel"
+        frame._server_state_cache = "ready"
         frame._client.get_loaded_model = MagicMock(return_value="TestModel")
         frame._client.check_state = MagicMock(return_value="ready")
         frame._current_n_ctx = 4096
@@ -987,85 +1010,97 @@ class TestContextMeter:
 
 
 class TestPreSendGuard:
-    """send_message pre-send guard: block, warn, allow paths."""
+    """Pre-send verdict in _continue_send: block, warn, allow paths.
+
+    The blocking work (token_count/read_vram/check_tool_support) now runs on a
+    daemon thread; the verdict + chat_stream dispatch live in _continue_send,
+    which these tests drive directly with pre-computed args (deterministic, no
+    threads). The send_message → prep_worker → _continue_send wiring is covered
+    by test_send_message_dispatches_prep below.
+    """
 
     def test_allow_path_proceeds(self, app):
-        """Under-budget: pre-send check returns allow, send proceeds."""
-        from bellbird.core.context_advisor import PreSendVerdict
+        """Under-budget: pre-send check returns allow, chat_stream called."""
         frame, config, _, fake_speech = _make_frame(app)
-        frame._is_generating = False
         config.safe_vram_mode = False
         frame._current_n_ctx = 4096
         frame._pre_send_warned_this_conv = False
-
-        with patch("bellbird.ui.main_window.token_count") as mock_tc:
-            mock_tc.return_value = 100  # well under 4096
+        try:
             with patch.object(frame._client, "chat_stream") as mock_cs:
-                # We need to get past the input validation
-                frame.chat_panel.get_input_text = MagicMock(return_value="Hello")
-                frame.chat_panel.get_attached_images = MagicMock(return_value=[])
-                frame.chat_panel.get_attached_text = MagicMock(return_value="")
-                with patch.object(frame._conversation, "get_messages_for_api", return_value=[]):
-                    try:
-                        frame.send_message()
-                        # The pre-send guard should pass through to chat_stream
-                        # (mock is just checking it was called)
-                    finally:
-                        frame.Destroy()
+                frame._continue_send([], None, None, None, 100, False, "Hello")
+                mock_cs.assert_called_once()
+                assert frame._preparing_send is False
+        finally:
+            frame.Destroy()
 
     def test_warn_path_speaks_once(self, app):
         """Over-budget safe=False: warn once and proceed."""
         frame, config, _, fake_speech = _make_frame(app)
-        frame._is_generating = False
         config.safe_vram_mode = False
         frame._current_n_ctx = 100
         frame._pre_send_warned_this_conv = False
-
-        with patch("bellbird.ui.main_window.token_count") as mock_tc:
-            mock_tc.return_value = 200  # over 100
-            with patch("bellbird.ui.main_window.estimate_size_bytes") as mock_esb:
-                mock_esb.return_value = None
-                with patch("bellbird.ui.main_window.read_vram") as mock_vram:
-                    mock_vram.return_value = (None, None)
-                    frame.chat_panel.get_input_text = MagicMock(return_value="test")
-                    frame.chat_panel.get_attached_images = MagicMock(return_value=[])
-                    frame.chat_panel.get_attached_text = MagicMock(return_value="")
-                    with patch.object(frame._conversation, "get_messages_for_api", return_value=[]):
-                        with patch.object(frame._client, "chat_stream") as mock_cs:
-                            try:
-                                frame.send_message()
-                                assert frame._pre_send_warned_this_conv is True, (
-                                    "Warn flag should be set after warning"
-                                )
-                                # The warn path should still call chat_stream
-                                mock_cs.assert_called_once()
-                            finally:
-                                frame.Destroy()
+        try:
+            with patch.object(frame._client, "chat_stream") as mock_cs:
+                frame._continue_send([], None, None, None, 200, False, "test")
+                assert frame._pre_send_warned_this_conv is True, (
+                    "Warn flag should be set after warning"
+                )
+                mock_cs.assert_called_once()
+        finally:
+            frame.Destroy()
 
     def test_block_path_returns_early(self, app):
         """Safe mode + over-budget: block, no chat_stream."""
         frame, config, _, fake_speech = _make_frame(app)
-        frame._is_generating = False
         config.safe_vram_mode = True
         frame._current_n_ctx = 100
+        try:
+            with patch.object(frame._client, "chat_stream") as mock_cs:
+                frame._continue_send([], None, None, None, 200, False, "test")
+                mock_cs.assert_not_called()
+                assert frame._preparing_send is False, (
+                    "Re-entry guard must clear even on block"
+                )
+        finally:
+            frame.Destroy()
 
-        with patch("bellbird.ui.main_window.token_count") as mock_tc:
-            mock_tc.return_value = 200  # over 100
-            with patch("bellbird.ui.main_window.estimate_size_bytes") as mock_esb:
-                mock_esb.return_value = None
-                with patch("bellbird.ui.main_window.read_vram") as mock_vram:
-                    mock_vram.return_value = (None, None)
-                    frame.chat_panel.get_input_text = MagicMock(return_value="test")
-                    frame.chat_panel.get_attached_images = MagicMock(return_value=[])
-                    frame.chat_panel.get_attached_text = MagicMock(return_value="")
-                    with patch.object(frame._conversation, "get_messages_for_api", return_value=[]):
-                        with patch.object(frame._client, "chat_stream") as mock_cs:
-                            try:
-                                frame.send_message()
-                                mock_cs.assert_not_called()
-                                assert "Contexto lleno" in fake_speech.last_message or True
-                            finally:
-                                frame.Destroy()
+    def test_send_message_dispatches_prep(self, app):
+        """send_message offloads blocking work and resumes via _continue_send.
+
+        Patches Thread + CallAfter to run synchronously so the whole async
+        path executes in-test, proving token_count/read_vram/check_tool_support
+        no longer run on the UI thread inside send_message itself.
+        """
+        frame, config, _, fake_speech = _make_frame(app)
+        config.safe_vram_mode = False
+        frame._is_generating = False
+        frame._is_loading_model = False
+        frame._current_n_ctx = 4096
+        frame.chat_panel.get_input_text = MagicMock(return_value="Hello")
+        frame.chat_panel.get_attached_images = MagicMock(return_value=[])
+        frame.chat_panel.get_attached_text = MagicMock(return_value="")
+
+        class _SyncThread:
+            def __init__(self, target=None, daemon=None, **kw):
+                self._target = target
+
+            def start(self):
+                self._target()
+
+        try:
+            with patch("bellbird.ui.main_window.threading.Thread", _SyncThread), \
+                 patch("bellbird.ui.main_window.wx.CallAfter",
+                       lambda fn, *a, **k: fn(*a, **k)), \
+                 patch("bellbird.ui.main_window.token_count", return_value=50), \
+                 patch("bellbird.ui.main_window.read_vram", return_value=(8000, 8000)), \
+                 patch("bellbird.ui.main_window.estimate_size_bytes", return_value=None), \
+                 patch.object(frame._client, "check_tool_support", return_value=False), \
+                 patch.object(frame._client, "chat_stream") as mock_cs:
+                frame.send_message()
+                mock_cs.assert_called_once()
+                assert frame._preparing_send is False
+        finally:
+            frame.Destroy()
 
     def test_warn_resets_on_new_conversation(self, app):
         """Warn flag resets when new_conversation is called."""

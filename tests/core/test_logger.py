@@ -45,7 +45,9 @@ def test_get_logger_returns_logger_instance(clean_logger, monkeypatch, tmp_path)
 
 
 def test_get_logger_writes_to_data_dir(clean_logger, monkeypatch, tmp_path):
-    """The log file is created under the user-data directory."""
+    """The log file is created under <user-data>/logs/ as a session file."""
+    from bellbird.core.logger import get_log_path
+
     _patch_user_data_dir(monkeypatch, tmp_path)
     log = get_logger()
     log.info("hello from bellbird")
@@ -54,7 +56,10 @@ def test_get_logger_writes_to_data_dir(clean_logger, monkeypatch, tmp_path):
     for h in log.handlers:
         h.flush()
 
-    log_file = tmp_path / "bellbird.log"
+    log_file = get_log_path()
+    assert log_file is not None
+    assert log_file.parent == tmp_path / "logs"
+    assert log_file.name.startswith("session_") and log_file.suffix == ".log"
     assert log_file.exists(), f"Expected log file at {log_file}"
     content = log_file.read_text(encoding="utf-8")
     assert "hello from bellbird" in content
@@ -87,7 +92,8 @@ def test_get_logger_levels(clean_logger, monkeypatch, tmp_path):
     for h in log.handlers:
         h.flush()
 
-    content = (tmp_path / "bellbird.log").read_text(encoding="utf-8")
+    from bellbird.core.logger import get_log_path
+    content = get_log_path().read_text(encoding="utf-8")
     assert "d-message" in content
     assert "i-message" in content
     assert "w-message" in content
@@ -106,7 +112,8 @@ def test_get_logger_uses_utf8(clean_logger, monkeypatch, tmp_path):
     for h in log.handlers:
         h.flush()
 
-    content = (tmp_path / "bellbird.log").read_text(encoding="utf-8")
+    from bellbird.core.logger import get_log_path
+    content = get_log_path().read_text(encoding="utf-8")
     assert "eñes" in content
     assert "ñ" in content
 
@@ -137,14 +144,15 @@ def test_get_logger_swallows_file_open_failure(clean_logger, monkeypatch, tmp_pa
 def test_log_path_is_under_user_data_dir(clean_logger, monkeypatch, tmp_path):
     """GIVEN user_data_dir returns <tmp_path>
     WHEN get_logger() runs
-    THEN get_log_path() returns <tmp_path>/bellbird.log."""
+    THEN get_log_path() is a session file under <tmp_path>/logs/."""
     from bellbird.core.logger import get_log_path
 
     _patch_user_data_dir(monkeypatch, tmp_path)
     log = get_logger()
     log_path = get_log_path()
-    expected = tmp_path / "bellbird.log"
-    assert log_path == expected
+    assert log_path.parent == tmp_path / "logs"
+    assert log_path.name.startswith("session_")
+    assert log_path.suffix == ".log"
     assert log_path.exists()
 
 

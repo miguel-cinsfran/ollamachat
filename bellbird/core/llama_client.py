@@ -226,18 +226,66 @@ class LlamaClient:
         """
         if self._tool_support_cache is not None:
             return self._tool_support_cache
+        from bellbird.core.logger import get_logger
+        log = get_logger()
         try:
             response = self._session.get(
                 f"{self.base_url}/props", timeout=5
             )
             if response.status_code != 200:
+                log.warning(
+                    "check_tool_support: /props HTTP %s", response.status_code
+                )
                 self._tool_support_cache = False
                 return False
             body = response.json()
-            self._tool_support_cache = bool(body.get("chat_template_tool_use", False))
-        except Exception:
+            # llama.cpp reports the resolved template's capabilities as a
+            # bool map under "chat_template_caps" (supports_tools /
+            # supports_tool_calls). That is the right signal: the old check
+            # on "chat_template_tool_use" only became true when a SEPARATE
+            # tool-use template shipped in the GGUF, so Qwen/GLM — which do
+            # support tools via their main --jinja template — were wrongly
+            # rejected and the model then hallucinated terminal access.
+            caps = body.get("chat_template_caps")
+            if isinstance(caps, dict):
+                supported = bool(
+                    caps.get("supports_tools") or caps.get("supports_tool_calls")
+                )
+            else:
+                # Older llama.cpp without the caps map: fall back to the
+                # legacy field rather than guessing.
+                supported = bool(body.get("chat_template_tool_use", False))
+            log.info(
+                "check_tool_support: supported=%s caps=%s legacy_tool_use=%s",
+                supported, caps, body.get("chat_template_tool_use"),
+            )
+            self._tool_support_cache = supported
+        except Exception as e:
+            log.warning("check_tool_support: %s: %s", type(e).__name__, e)
             self._tool_support_cache = False
         return self._tool_support_cache
+
+    def get_n_ctx(self) -> int | None:
+        """Return the loaded model's context-window size (tokens), or None.
+
+        Reads ``GET /props``; llama-server reports the effective context size
+        under ``default_generation_settings.n_ctx`` (with a top-level ``n_ctx``
+        as a fallback in some builds). Used to compute the context-usage
+        percentage for F2. Never raises.
+        """
+        try:
+            response = self._session.get(f"{self.base_url}/props", timeout=5)
+            if response.status_code != 200:
+                return None
+            body = response.json()
+            dgs = body.get("default_generation_settings")
+            if isinstance(dgs, dict) and isinstance(dgs.get("n_ctx"), int):
+                return dgs["n_ctx"]
+            if isinstance(body.get("n_ctx"), int):
+                return body["n_ctx"]
+            return None
+        except Exception:
+            return None
 
     def chat_stream(
         self,
@@ -416,16 +464,22 @@ class LlamaClient:
 
                     chunk_count += 1
 
+                    # Resolve choices[0] ONCE, tolerating an empty list.
+                    # ``chunk.get("choices", [{}])`` only falls back when the
+                    # key is MISSING — but with stream_options.include_usage
+                    # (the F2 context meter) llama-server sends a final chunk
+                    # whose ``"choices": []`` carries only ``usage``. Indexing
+                    # ``[][0]`` then raised "IndexError: list index out of
+                    # range" on every generation. An empty choice0 makes the
+                    # extractions below no-ops while usage still fires.
+                    choices = chunk.get("choices") or []
+                    choice0 = choices[0] if choices else {}
+
                     # Tool-call delta accumulation: extract before content
                     # so we capture finish_reason even on the final chunk.
-                    finish_reason = (
-                        chunk.get("choices", [{}])[0]
-                        .get("finish_reason") or ""
-                    )
+                    finish_reason = choice0.get("finish_reason") or ""
                     tool_calls_delta = (
-                        chunk.get("choices", [{}])[0]
-                        .get("delta", {})
-                        .get("tool_calls", [])
+                        choice0.get("delta", {}).get("tool_calls", [])
                     )
                     for tc in tool_calls_delta:
                         idx = tc["index"]
@@ -457,7 +511,7 @@ class LlamaClient:
                         if timings is not None and timings:  # non-empty dict
                             wx.CallAfter(on_timings, timings)
 
-                    delta = chunk.get("choices", [{}])[0].get("delta", {})
+                    delta = choice0.get("delta", {})
                     reasoning_content = delta.get("reasoning_content") or ""
                     content = delta.get("content") or ""
 

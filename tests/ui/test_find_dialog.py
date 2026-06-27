@@ -15,7 +15,7 @@ def _make_dialog():
     """Create a FindDialog for testing."""
     from bellbird.ui.find_dialog import FindDialog
 
-    app = wx.App()
+    app = wx.GetApp()
     parent = wx.Frame(None)
     dlg = FindDialog(parent)
     return app, parent, dlg

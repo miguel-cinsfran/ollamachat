@@ -15,7 +15,7 @@ import wx
 @pytest.fixture
 def app():
     """Create a wx.App for the duration of each test."""
-    app = wx.App()
+    app = wx.GetApp()
     yield app
 
 

@@ -4,8 +4,10 @@ Defines a single-method ``Protocol`` that the ``Notifier`` uses to
 check whether the application window currently has OS focus. The
 production implementation lives in ``MainWindow``:
 
-    focus_check = lambda: not self.IsActive()
+    focus_check = lambda: self.IsActive()
 
+It must return ``True`` when the window HAS focus (the Notifier stays
+silent in that case and only fires toasts/sounds when unfocused).
 On non-Windows or in tests, a stub can always return ``False``.
 """
 
@@ -16,7 +18,7 @@ class FocusChecker(Protocol):
     """Protocol for checking whether the app window has OS focus.
 
     The production impl is a lambda in ``MainWindow.__init__``:
-    ``lambda: not self.IsActive()``.
+    ``lambda: self.IsActive()`` — returns ``True`` when focused.
 
     Structural typing — any object with ``def is_focused(self) -> bool``
     satisfies the protocol.

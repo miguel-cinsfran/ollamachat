@@ -18,7 +18,13 @@ class BellbirdApp(wx.App):
             True to continue the application event loop.
         """
         frame = MainWindow(None, title="Bellbird")
+        # SetTopWindow + Raise make the frame the clean foreground window so
+        # NVDA announces "Bellbird" on launch. Without Raise() the console that
+        # started us can keep the foreground, and the screen reader never reads
+        # the new window's title — it jumps straight to the focused control.
+        self.SetTopWindow(frame)
         frame.Show()
+        frame.Raise()
         return True
 
 

@@ -24,12 +24,15 @@ class TestSystemVoice:
         """On non-Windows platforms, speak() is a silent no-op."""
         from bellbird.core.system_voice import SystemVoice
 
-        sv = SystemVoice(voice_name="Test", rate=5)
-        # No exception
-        sv.speak("hola")
-        assert not sv.is_available(), (
-            "SystemVoice should not be available on non-win32"
-        )
+        # Simulate a non-win32 host so the test is valid even when run on
+        # Windows (SystemVoice reads sys.platform on every code path).
+        with patch("bellbird.core.system_voice.sys.platform", "linux"):
+            sv = SystemVoice(voice_name="Test", rate=5)
+            # No exception
+            sv.speak("hola")
+            assert not sv.is_available(), (
+                "SystemVoice should not be available on non-win32"
+            )
 
     def test_speak_with_none_voice_is_silent(self) -> None:
         """Calling speak with no underlying voice is a silent no-op."""
@@ -43,7 +46,8 @@ class TestSystemVoice:
         """list_voices() returns empty list outside win32."""
         from bellbird.core.system_voice import SystemVoice
 
-        result = SystemVoice.voices()
+        with patch("bellbird.core.system_voice.sys.platform", "linux"):
+            result = SystemVoice.voices()
         assert result == [], (
             f"Expected empty list on non-win32, got {result}"
         )
@@ -100,4 +104,5 @@ class TestSystemVoice:
         """voices() static method returns [] on non-win32."""
         from bellbird.core.system_voice import SystemVoice
 
-        assert SystemVoice.voices() == []
+        with patch("bellbird.core.system_voice.sys.platform", "linux"):
+            assert SystemVoice.voices() == []

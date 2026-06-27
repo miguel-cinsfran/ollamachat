@@ -11,7 +11,12 @@ import html
 import markdown
 
 # Extensions used for rendering both the main message and reasoning.
-MARKDOWN_EXTENSIONS = ["fenced_code", "tables", "sane_lists", "nl2br"]
+# NOTE: "nl2br" is deliberately ABSENT. It turns every single "\n" into a
+# hard <br>, and LLMs emit soft newlines mid-sentence, so the screen reader
+# read each fragment as its own line ("hola, soy" / "un modelo" / ...).
+# Without it, Markdown reflows soft newlines into flowing paragraphs while
+# fenced code blocks still keep their own line breaks.
+MARKDOWN_EXTENSIONS = ["fenced_code", "tables", "sane_lists"]
 
 # Inline CSS — uses rgba(127,127,127, X) alpha blending so the colours
 # adapt to the browser's theme (light/dark/high-contrast).

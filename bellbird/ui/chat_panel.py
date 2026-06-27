@@ -224,6 +224,14 @@ class ChatPanel(wx.Panel):
         """
         if self._streaming_index is None:
             return
+        # Avoid hammering the screen reader: if the user is parked ON the
+        # streaming row, every SetString re-fires NVDA's value-change read, so
+        # the row "se refresca sin parar" while tokens arrive. The streamed
+        # content is already announced via speech chunks, so just hold the
+        # "(generando…)" placeholder until end_generation sets the final text.
+        if (self.message_list.HasFocus()
+                and self.message_list.GetSelection() == self._streaming_index):
+            return
         preview = f"[IA] {self._preview(strip_markdown(text))}"
         self.message_list.SetString(self._streaming_index, preview)
 
@@ -975,10 +983,17 @@ class ChatPanel(wx.Panel):
 
     # ── Tool output display (v0.4.0) ──────────────────────────────────────
 
+    def append_tool_call(self, tool_name: str, command: str) -> None:
+        """Muestra el comando que el modelo va a ejecutar (antes del resultado)."""
+        text = f"[Comando] {tool_name}: {command}"
+        self._history.append(("system", text))
+        self.message_list.Append(self._preview(text))
+        self.message_list.SetSelection(self.message_list.GetCount() - 1)
+
     def append_tool_output(self, text: str) -> None:
         """Muestra el resultado de una herramienta en el historial."""
         self._history.append(("tool", text))
-        preview = f"[Herramienta] {self._preview(text)}"
+        preview = f"[Resultado] {self._preview(text)}"
         self.message_list.Append(preview)
         self.message_list.SetSelection(self.message_list.GetCount() - 1)
 
@@ -986,7 +1001,8 @@ class ChatPanel(wx.Panel):
         """Muestra que un comando fue bloqueado por seguridad."""
         text = f"[Bloqueado] {tool_name}: {command}"
         self._history.append(("system", text))
-        self.message_list.Append(f"[Bloqueado] {self._preview(text)}")
+        # text already starts with "[Bloqueado]" — don't prepend it twice.
+        self.message_list.Append(self._preview(text))
         self.message_list.SetSelection(self.message_list.GetCount() - 1)
 
     def append_tool_denied(self, tool_name: str) -> None:

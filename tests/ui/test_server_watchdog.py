@@ -21,7 +21,7 @@ import wx
 @pytest.fixture(scope="module")
 def app():
     """Create a wx.App for the test module."""
-    return wx.App()
+    return wx.GetApp()
 
 
 def _mock_client(check_state_return: str = "dead"):
@@ -51,6 +51,26 @@ def _mock_config(request_timeout: int = 120):
     return cfg
 
 
+@pytest.fixture(autouse=True)
+def _neutralize_deferred_init():
+    """Stop the deferred ``__init__`` callbacks from leaking past these tests.
+
+    Every test in this module replaces the frame's config with a MagicMock.
+    ``MainWindow.__init__`` schedules ``wx.CallAfter(self._set_initial_focus)``
+    and ``wx.CallAfter(self._auto_restore_last_session)``; in the module-scoped
+    ``wx.App`` those can fire later — during another test's modal loop — against
+    that mock config and raise (``_auto_restore`` reaches ``save_config`` →
+    ``asdict(MagicMock)``). None of the watchdog tests exercise those hooks, so
+    we stub them out for this module. (``_start_probe_thread`` is already
+    neutralised globally in ``conftest.py``.)
+    """
+    from bellbird.ui.main_window import MainWindow
+
+    with patch.object(MainWindow, "_set_initial_focus", lambda self: None), \
+         patch.object(MainWindow, "_auto_restore_last_session", lambda self: None):
+        yield
+
+
 def test_watchdog_shows_restart_dialog_on_connection_error(app):
     """GIVEN _on_error with ConnectionError and check_state returns "dead"
     WHEN _on_server_state_checked runs
@@ -65,6 +85,8 @@ def test_watchdog_shows_restart_dialog_on_connection_error(app):
     ), patch.object(
         MainWindow, "_scan_models"
     ), patch.object(
+        MainWindow, "_show_restart_dialog"
+    ) as mock_restart_dialog, patch.object(
         Speech, "__init__", return_value=None
     ), patch.object(
         Speech, "speak"
@@ -78,20 +100,14 @@ def test_watchdog_shows_restart_dialog_on_connection_error(app):
         # Call _on_error with a connection error (this mimics the watchdog path)
         frame._on_error("ConnectionError: refused")
 
-        # After _on_server_state_checked runs (via wx.CallAfter from watchdog thread),
-        # the restart dialog is shown modally.
-        # Since _on_error runs the watchdog thread which calls wx.CallAfter,
-        # and the test's mock_call_after pattern is not set up here,
-        # we instead call the handler directly.
+        # Drive the watchdog result handler directly. _show_restart_dialog is
+        # mocked because it calls a real ShowModal() that would block the
+        # headless run forever (the dialog itself is covered by
+        # test_restart_dialog_structure).
         frame._on_server_state_checked("dead", "ConnectionError: refused")
 
-        # The _on_use_model call would have happened if user clicked Yes,
-        # but since we can't interact with the modal dialog in this test,
-        # we verify that the _show_restart_dialog method exists and is
-        # reachable by asserting the state transition.
-        # For a deeper test of the dialog itself, manual verification
-        # with NVDA is recommended (the dialog is a simple wx.Dialog
-        # with two buttons).
+        # The "dead" branch must reach the restart dialog.
+        mock_restart_dialog.assert_called_once()
 
         frame.Destroy()
 
@@ -133,6 +149,8 @@ def test_watchdog_falls_through_when_state_ready(app):
         MainWindow, "_start_probe_thread"
     ), patch.object(
         MainWindow, "_scan_models"
+    ), patch(
+        "wx.MessageDialog"
     ), patch.object(
         Speech, "__init__", return_value=None
     ), patch.object(
@@ -142,7 +160,8 @@ def test_watchdog_falls_through_when_state_ready(app):
         frame._client = _mock_client("ready")
         frame._config = _mock_config()
 
-        # The "ready" path shows a wx.MessageDialog — we just verify no crash
+        # The "ready" path shows a wx.MessageDialog — patched so its
+        # ShowModal() does not block the headless run. We just verify no crash.
         frame._on_server_state_checked("ready", "transient error")
 
         frame.Destroy()

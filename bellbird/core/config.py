@@ -30,7 +30,7 @@ class BellbirdConfig:
     last_model: str = ""
     extra_model_folders: list[str] = field(default_factory=list)
     ctx_size: int = 4096
-    n_gpu_layers: int = 99
+    n_gpu_layers: int = -1  # -1 = auto: let llama.cpp fit layers to free VRAM
     port: int = 8080
     confirm_new_conversation: bool = True
     tools_enabled: bool = False

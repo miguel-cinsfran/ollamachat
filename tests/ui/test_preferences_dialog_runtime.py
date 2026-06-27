@@ -17,7 +17,7 @@ from bellbird.core.config import BellbirdConfig
 @pytest.fixture(scope="module")
 def app():
     """Create a wx.App for the test module."""
-    return wx.App()
+    return wx.GetApp()
 
 
 def _make_dialog(app, config: BellbirdConfig | None = None) -> "PreferencesDialog":
@@ -30,6 +30,18 @@ def _make_dialog(app, config: BellbirdConfig | None = None) -> "PreferencesDialo
     dlg = PreferencesDialog(parent, config)
     dlg.Show()  # non-blocking
     return dlg
+
+
+def _find(dlg, name):
+    """Find a named child scoped to ``dlg``.
+
+    ``wx.Window.FindWindowByName`` is a *static* method whose ``parent``
+    defaults to ``None`` — so ``dlg.FindWindowByName(name)`` searches every
+    live wx window globally and can return a same-named control from a
+    previous (deferred-Destroy) dialog instead of this one's. Passing ``dlg``
+    as the explicit parent keeps the search scoped.
+    """
+    return wx.Window.FindWindowByName(name, dlg)
 
 
 class TestPreferencesDialog:
@@ -53,7 +65,10 @@ class TestPreferencesDialog:
         original = BellbirdConfig(system_prompt="hola")
         dlg = _make_dialog(app, config=original)
         try:
-            dlg.EndModal(wx.ID_OK)
+            # The dialog is shown non-modally (Show, not ShowModal), so
+            # EndModal() would assert. Simulate the OK handler, which applies
+            # the controls back into the config before closing.
+            dlg._apply_config()
             result = dlg.get_config()
             assert result.system_prompt == "hola", (
                 f"Expected 'hola', got {result.system_prompt!r}"
@@ -79,7 +94,7 @@ class TestPreferencesDialog:
         the config."""
         dlg = _make_dialog(app)
         try:
-            url_check = dlg.FindWindowByName("pref_filter_urls")
+            url_check = _find(dlg, "pref_filter_urls")
             assert url_check is not None, "pref_filter_urls not found"
             assert isinstance(url_check, wx.CheckBox)
 
@@ -104,12 +119,13 @@ class TestPreferencesDialog:
         dlg = _make_dialog(app, config=config)
         try:
             # Select the preset in the listbox
-            preset_list = dlg.FindWindowByName("pref_presets_list")
+            preset_list = _find(dlg, "pref_presets_list")
             assert preset_list is not None, "pref_presets_list not found"
             assert isinstance(preset_list, wx.ListBox)
             preset_list.SetSelection(0)
 
-            dlg.EndModal(wx.ID_OK)
+            # Non-modal dialog: simulate the OK handler instead of EndModal().
+            dlg._apply_config()
             result = dlg.get_config()
             assert len(result.param_presets) == 1, (
                 f"Expected 1 preset, got {len(result.param_presets)}"
@@ -126,7 +142,7 @@ class TestPreferencesDialog:
         dlg = _make_dialog(app)
         try:
             # Set rate via slider
-            rate_slider = dlg.FindWindowByName("pref_rate_slider")
+            rate_slider = _find(dlg, "pref_rate_slider")
             assert rate_slider is not None, "pref_rate_slider not found"
             rate_slider.SetValue(5)
 

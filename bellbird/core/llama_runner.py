@@ -48,6 +48,73 @@ _POLL_INTERVAL_SECONDS = 0.2
 _STOP_TIMEOUT_SECONDS = 5.0
 
 
+def _force_stop_on_port(port: int) -> None:
+    """Best-effort: kill the process LISTENING on *port* (Windows only).
+
+    ``stop_server`` only terminates the process this run spawned. When a
+    llama-server from a previous app session still holds the port, switching
+    models would otherwise silently no-op (the fast-path sees "already
+    running"). This finds the owning PID via PowerShell and kills it. Never
+    raises; a failure just means the subsequent spawn will report the busy port.
+    """
+    if not _is_windows():
+        return
+    try:
+        result = subprocess.run(
+            [
+                "powershell", "-NoProfile", "-Command",
+                f"(Get-NetTCPConnection -LocalPort {port} -State Listen "
+                f"-ErrorAction SilentlyContinue).OwningProcess",
+            ],
+            capture_output=True, text=True, timeout=5,
+            creationflags=_CREATE_NO_WINDOW,
+        )
+        for token in result.stdout.split():
+            pid = token.strip()
+            if pid.isdigit():
+                subprocess.run(
+                    ["taskkill", "/F", "/PID", pid],
+                    capture_output=True, timeout=5,
+                    creationflags=_CREATE_NO_WINDOW,
+                )
+    except Exception:
+        pass
+
+
+def _diagnose_exit(stderr_tail: list[str]) -> str:
+    """Turn llama-server's last stderr lines into a Spanish, actionable reason.
+
+    Blind users were getting a generic "se cerró al iniciar" with no clue why
+    (commonly: the GPU ran out of VRAM for a big model). This scans the tail
+    for well-known failure phrases and otherwise surfaces the last real line.
+    """
+    joined = " \n".join(stderr_tail[-12:]).lower()
+    vram_markers = (
+        "out of memory", "cudamalloc", "failed to allocate", "ggml_cuda",
+        "cublas", "cuda error", "vram", "not enough memory",
+    )
+    if any(m in joined for m in vram_markers):
+        return (
+            "El servidor se cerró: memoria de GPU insuficiente para este modelo. "
+            "Probá un modelo más chico, reducí 'capas en GPU' (n-gpu-layers) o el "
+            "contexto."
+        )
+    if any(m in joined for m in (
+        "error loading model", "unable to load model", "failed to load model",
+        "invalid model", "unknown model architecture",
+    )):
+        return (
+            "El servidor se cerró: no pudo cargar el modelo (archivo inválido o "
+            "arquitectura no soportada por esta versión de llama-server)."
+        )
+    if "address already in use" in joined or "bind: " in joined:
+        return "El servidor se cerró: el puerto ya está en uso."
+    last = next((l.strip() for l in reversed(stderr_tail) if l.strip()), "")
+    if last:
+        return f"El servidor se cerró al iniciar. Detalle: {last[:180]}"
+    return "El servidor se cerró al iniciar"
+
+
 def find_llama_server() -> str | None:
     """Locate the llama-server binary on PATH.
 
@@ -212,9 +279,28 @@ def start_server(
         # Step 1: Stop any tracked process first
         stop_server()
 
-        # Step 2: Fast-path - server already running
+        # Step 2: Fast-path - server already running WITH THE SAME MODEL.
         if client.check_running():
-            return True, "El servidor ya está corriendo"
+            loaded = client.get_loaded_model()
+            if not isinstance(loaded, str) or not loaded:
+                # Loaded model unknown — keep the running server (fast path).
+                return True, "El servidor ya está corriendo"
+            if os.path.basename(loaded) == os.path.basename(model_path):
+                return True, "El servidor ya está corriendo"
+            # A DIFFERENT model is loaded — almost always an untracked server
+            # from a previous app run (stop_server only kills the process THIS
+            # run spawned). Force-stop whatever holds the port so the requested
+            # model actually loads; otherwise switching models silently no-ops
+            # and the UI keeps showing the old model.
+            _force_stop_on_port(port)
+            freed = False
+            for _ in range(25):
+                time.sleep(_POLL_INTERVAL_SECONDS)
+                if not client.check_running():
+                    freed = True
+                    break
+            if not freed:
+                return False, "No se pudo liberar el puerto para cambiar de modelo"
 
         # Step 3: Build argv
         argv = [
@@ -223,9 +309,16 @@ def start_server(
             "--port", str(port),
             "--host", "127.0.0.1",
             "--ctx-size", str(ctx_size),
-            "--n-gpu-layers", str(n_gpu_layers),
             "--jinja",
         ]
+        # n_gpu_layers < 0 means "auto": OMIT the flag so llama.cpp's
+        # common_fit_params offloads as many layers as fit in VRAM and runs the
+        # rest on CPU. Forcing --n-gpu-layers (e.g. 99) DISABLES that auto-fit,
+        # so a model bigger than VRAM aborts with an OOM instead of loading
+        # partially on the GPU. (Confirmed in llama-server's startup logs:
+        # "failed to fit params... n_gpu_layers already set by user, abort".)
+        if n_gpu_layers is not None and n_gpu_layers >= 0:
+            argv.extend(["--n-gpu-layers", str(n_gpu_layers)])
         if mmproj is not None:
             argv.extend(["--mmproj", mmproj])
         if not mmproj_offload:
@@ -275,6 +368,22 @@ def start_server(
         # needed. Project targets CPython only (requires-python=">=3.12").
         _early_exit: list[tuple[bool, str]] = []
         _ok_ready: list[bool] = []
+        # Rolling tail of the last stderr lines, so an unclassified crash
+        # (e.g. CUDA out of memory) can report the REAL reason instead of a
+        # generic "se cerró al iniciar". CPython list ops are atomic.
+        _stderr_tail: list[str] = []
+
+        from bellbird.core.logger import get_logger
+        _log = get_logger()
+        # Backend lines worth surfacing so we KNOW whether the GPU is used and
+        # how many layers were offloaded (answers "does this use CUDA?" and why
+        # loading is slow / why a big model OOMs). llama-server prints these to
+        # stderr at startup.
+        _backend_markers = (
+            "cuda", "vulkan", "metal", "rocm", "hipblas", "sycl",
+            "offload", "n_gpu_layers", "using device", "ggml_backend",
+            "load_tensors", "model size", "buffer size",
+        )
 
         def _stderr_reader(proc: subprocess.Popen) -> None:
             """Daemon thread: read stderr lines and classify them."""
@@ -290,6 +399,12 @@ def start_server(
                     except AttributeError:
                         continue
                     line = text.rstrip("\n")
+                    if line.strip():
+                        _stderr_tail.append(line)
+                        del _stderr_tail[:-12]  # keep only the last 12 lines
+                        low = line.lower()
+                        if any(m in low for m in _backend_markers):
+                            _log.info("llama-server: %s", line.strip()[:200])
                     verdict, reason = parse_stderr_line(line)
                     if verdict == "FAIL":
                         _early_exit.append((False, reason))
@@ -325,7 +440,7 @@ def start_server(
         if _server_process.poll() is not None:
             stop_server()
             reader.join(timeout=1.0)
-            return False, "El servidor se cerró al iniciar"
+            return False, _diagnose_exit(_stderr_tail)
 
         # Success: stderr OK signal or health endpoint ready
         if _ok_ready:

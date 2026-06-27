@@ -25,13 +25,18 @@ KEYMAP_MOD_CTRL: int = 1
 KEYMAP_MOD_SHIFT: int = 2
 KEYMAP_MOD_ALT: int = 4
 
-# wx.WXK_* integer literals for core/ (no wx import at module level)
-_WXK_F4 = 342
-_WXK_F2 = 340
-_WXK_F5 = 343
-_WXK_F6 = 344
-_WXK_F7 = 345
-_WXK_F8 = 346
+# wx.WXK_* integer literals for core/ (no wx import at module level).
+# VERIFIED against wxPython 4.2: F1=340, F2=341, F3=342, F4=343, F5=344,
+# F6=345, F7=346, F8=347. These were previously ALL off by one (F2 was 340 =
+# physically F1), so F2 "announce status" never fired and every function-key
+# accelerator was shifted down a key. The menu items (e.g. "\tF7") still worked
+# because wx parses those strings itself; only the AcceleratorTable was wrong.
+_WXK_F2 = 341
+_WXK_F4 = 343
+_WXK_F5 = 344
+_WXK_F6 = 345
+_WXK_F7 = 346
+_WXK_F8 = 347
 _WXK_ESCAPE = 27
 _WXK_UP = 315
 _WXK_DOWN = 317
@@ -276,12 +281,12 @@ DEFAULT_KEYMAP: dict[str, Binding] = {
     "open_conversation": Binding(KEYMAP_MOD_CTRL, ord("O"), "Ctrl+O"),
     "save_conversation": Binding(KEYMAP_MOD_CTRL, ord("S"), "Ctrl+S"),
     "preferences": Binding(KEYMAP_MOD_CTRL, ord(","), "Ctrl+,"),
-    "exit": Binding(KEYMAP_MOD_ALT, 342, "Alt+F4"),  # wx.WXK_F4
-    "announce_status": Binding(KEYMAP_MOD_NONE, 340, "F2"),  # wx.WXK_F2
-    "scan_models": Binding(KEYMAP_MOD_NONE, 343, "F5"),  # wx.WXK_F5
-    "cycle_panels": Binding(KEYMAP_MOD_NONE, 344, "F6"),  # wx.WXK_F6
-    "start_server": Binding(KEYMAP_MOD_NONE, 345, "F7"),  # wx.WXK_F7
-    "stop_server": Binding(KEYMAP_MOD_CTRL, 345, "Ctrl+F7"),  # wx.WXK_F7
+    "exit": Binding(KEYMAP_MOD_ALT, _WXK_F4, "Alt+F4"),  # wx.WXK_F4 = 343
+    "announce_status": Binding(KEYMAP_MOD_NONE, _WXK_F2, "F2"),  # wx.WXK_F2 = 341
+    "scan_models": Binding(KEYMAP_MOD_NONE, _WXK_F5, "F5"),  # wx.WXK_F5 = 344
+    "cycle_panels": Binding(KEYMAP_MOD_NONE, _WXK_F6, "F6"),  # wx.WXK_F6 = 345
+    "start_server": Binding(KEYMAP_MOD_NONE, _WXK_F7, "F7"),  # wx.WXK_F7 = 346
+    "stop_server": Binding(KEYMAP_MOD_CTRL, _WXK_F7, "Ctrl+F7"),  # wx.WXK_F7 = 346
     "abort_generation": Binding(KEYMAP_MOD_NONE, 27, "Escape"),  # wx.WXK_ESCAPE
     "focus_chat": Binding(KEYMAP_MOD_ALT, ord("1"), "Alt+1"),
     "focus_params": Binding(KEYMAP_MOD_ALT, ord("2"), "Alt+2"),

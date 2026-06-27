@@ -15,7 +15,7 @@ import wx
 @pytest.fixture(scope="module")
 def app():
     """Create a wx.App for the test module."""
-    return wx.App()
+    return wx.GetApp()
 
 
 class TestURLDialog:
@@ -82,6 +82,10 @@ class TestURLDialog:
         from bellbird.ui.url_dialog import URLDialog
 
         dlg = URLDialog(None)
+        # End the modal as soon as its event loop starts so the headless run
+        # does not block waiting for user input (mimics the user pressing
+        # Escape). This still exercises the real ShowModal/EndModal path.
+        wx.CallAfter(dlg.EndModal, wx.ID_CANCEL)
         result = dlg.ShowModal()
         dlg.Destroy()
         # Just checking no crash — result can be ID_CANCEL if Escape

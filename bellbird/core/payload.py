@@ -37,7 +37,19 @@ def build_api_messages(
     the duplication.
     """
     messages: list[dict] = []
+    # Combine the environment-aware tool prompt (only when tools are enabled)
+    # with the user's own system prompt into a SINGLE system message — many
+    # chat templates only honour one system turn. The tool prompt goes first so
+    # the model reads the OS/shell/tool rules before any persona instructions.
+    system_parts: list[str] = []
+    if getattr(config, "tools_enabled", False) or getattr(
+        config, "file_tools_enabled", False
+    ):
+        from bellbird.core.tool_prompt import build_tool_system_prompt
+        system_parts.append(build_tool_system_prompt())
     if config.system_prompt.strip():
-        messages.append({"role": "system", "content": config.system_prompt})
+        system_parts.append(config.system_prompt.strip())
+    if system_parts:
+        messages.append({"role": "system", "content": "\n\n".join(system_parts)})
     messages.extend(conversation.get_messages_for_api())
     return messages

@@ -81,7 +81,7 @@ class TestKeymapPageRows:
         """GIVEN PreferencesDialog with default config
         WHEN _build_keymap_page runs
         THEN _keymap_rows has one entry per DEFAULT_KEYMAP entry."""
-        app = wx.App()
+        app = wx.GetApp()
         from bellbird.core.config import BellbirdConfig
         from bellbird.ui.main_window import MainWindow
 
@@ -94,7 +94,6 @@ class TestKeymapPageRows:
         )
         dlg.Destroy()
         frame.Destroy()
-        app.MainLoop()
 
     def test_action_labels_cover_all_ids(self):
         """Every action_id in DEFAULT_KEYMAP has a Spanish label in _ACTION_LABELS."""
@@ -103,7 +102,7 @@ class TestKeymapPageRows:
 
     def test_row_buttons_have_correct_names(self):
         """Each row's buttons have the documented name attributes."""
-        app = wx.App()
+        app = wx.GetApp()
         from bellbird.core.config import BellbirdConfig
         from bellbird.ui.main_window import MainWindow
 
@@ -116,7 +115,6 @@ class TestKeymapPageRows:
         assert row["restablecer"].GetName() == "keymap_reset_button"
         dlg.Destroy()
         frame.Destroy()
-        app.MainLoop()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -129,16 +127,15 @@ class TestKeyCaptureControl:
 
     def test_panel_name(self):
         """KeyCaptureControl panel has name='key_capture_panel'."""
-        app = wx.App()
+        app = wx.GetApp()
         dlg = wx.Dialog(None, title="Test")
         kcc = KeyCaptureControl(dlg, None)
         assert kcc.GetName() == "key_capture_panel"
         dlg.Destroy()
-        app.MainLoop()
 
     def test_capture_label_static_text_name(self):
         """The capture label StaticText has name='key_capture_label'."""
-        app = wx.App()
+        app = wx.GetApp()
         dlg = wx.Dialog(None, title="Test")
         kcc = KeyCaptureControl(dlg, None)
         for child in kcc.GetChildren():
@@ -149,18 +146,16 @@ class TestKeyCaptureControl:
             pytest.fail("No key_capture_label found")
         assert label is not None
         dlg.Destroy()
-        app.MainLoop()
 
     def test_capture_starts_empty(self):
         """captured is False and label is empty before any key is pressed."""
-        app = wx.App()
+        app = wx.GetApp()
         dlg = wx.Dialog(None, title="Test")
         kcc = KeyCaptureControl(dlg, None)
         assert not kcc.captured
         assert kcc.captured_modifiers == 0
         assert kcc.captured_keycode == 0
         dlg.Destroy()
-        app.MainLoop()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -173,18 +168,17 @@ class TestCaptureDialog:
 
     def test_dialog_name_and_title(self):
         """_CaptureDialog has name='keymap_capture_dialog' and caption 'Capturar atajo'."""
-        app = wx.App()
+        app = wx.GetApp()
         from bellbird.core.config import BellbirdConfig
 
         dlg = _CaptureDialog(None, Keymap(DEFAULT_KEYMAP), "copy_last", None)
         assert dlg.GetName() == "keymap_capture_dialog"
         assert dlg.GetTitle() == "Capturar atajo"
         dlg.Destroy()
-        app.MainLoop()
 
     def test_capture_dialog_has_accept_and_cancel_buttons(self):
         """The dialog has buttons named key_capture_accept_button and key_capture_cancel_button."""
-        app = wx.App()
+        app = wx.GetApp()
         dlg = _CaptureDialog(None, Keymap(DEFAULT_KEYMAP), "copy_last", None)
 
         accept = dlg.FindWindowByName("key_capture_accept_button")
@@ -193,21 +187,19 @@ class TestCaptureDialog:
         assert cancel is not None, "Cancel button not found"
         assert not accept.IsEnabled(), "Accept button should be disabled initially"
         dlg.Destroy()
-        app.MainLoop()
 
     def test_accept_disabled_initially(self):
         """Accept button is disabled until a key is captured."""
-        app = wx.App()
+        app = wx.GetApp()
         dlg = _CaptureDialog(None, Keymap(DEFAULT_KEYMAP), "copy_last", None)
         assert not dlg.accept_btn.IsEnabled()
         dlg.Destroy()
-        app.MainLoop()
 
     def test_conflict_rejection_keeps_previous_binding(self):
         """GIVEN a combo used by another action
         WHEN the user accepts with that combo
         THEN the dialog speaks the conflict, ends with ID_CANCEL (binding unchanged)."""
-        app = wx.App()
+        app = wx.GetApp()
         mock_speech = unittest.mock.Mock()
         dlg = _CaptureDialog(None, Keymap(DEFAULT_KEYMAP), "copy_last", mock_speech)
 
@@ -227,17 +219,15 @@ class TestCaptureDialog:
         mock_endmodal.assert_called_once_with(wx.ID_CANCEL)
 
         dlg.Destroy()
-        app.MainLoop()
 
     def test_no_conflict_returns_ok(self):
         """GIVEN an unused combo
         WHEN accepting
         THEN find_conflict returns None for the unused combo."""
-        app = wx.App()
+        app = wx.GetApp()
         km = Keymap(DEFAULT_KEYMAP)
         # Ctrl+Q is unused in defaults
         assert km.find_conflict(KEYMAP_MOD_CTRL, ord("Q")) is None
-        app.MainLoop()
 
     def test_set_escape_id(self):
         """Escape closes the capture dialog."""
@@ -265,7 +255,7 @@ class TestRestablecer:
         from copy import deepcopy
         from bellbird.core.config import BellbirdConfig
 
-        app = wx.App()
+        app = wx.GetApp()
         from bellbird.ui.main_window import MainWindow
 
         cfg = BellbirdConfig(keymap_overrides={"copy_last": (KEYMAP_MOD_ALT, ord("C"))})
@@ -283,7 +273,6 @@ class TestRestablecer:
 
         dlg.Destroy()
         frame.Destroy()
-        app.MainLoop()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -300,7 +289,7 @@ class TestPreferencesDialogOverrides:
         THEN keymap_overrides remains on self._config."""
         from bellbird.core.config import BellbirdConfig
 
-        app = wx.App()
+        app = wx.GetApp()
         from bellbird.ui.main_window import MainWindow
 
         cfg = BellbirdConfig()
@@ -318,7 +307,6 @@ class TestPreferencesDialogOverrides:
 
         dlg.Destroy()
         frame.Destroy()
-        app.MainLoop()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -336,7 +324,7 @@ class TestMainWindowShowPreferences:
         from bellbird.core.config import BellbirdConfig
         from bellbird.ui.main_window import MainWindow
 
-        app = wx.App()
+        app = wx.GetApp()
         # Start from a known-empty override state regardless of disk content
         clean_cfg = BellbirdConfig()
         modified_cfg = BellbirdConfig(
@@ -345,23 +333,26 @@ class TestMainWindowShowPreferences:
         with unittest.mock.patch("bellbird.ui.main_window.load_config", return_value=clean_cfg):
             frame = MainWindow(title="Test")
 
+        # Mock the whole PreferencesDialog class so _show_preferences never
+        # builds (or modally shows) a real dialog. Patching only ShowModal on
+        # the subclass proved unreliable in the full core+ui run — the real
+        # modal would run and hang the headless suite ("CRASH-01").
         with unittest.mock.patch.object(
             frame, "rebuild_accelerator_table",
         ) as mock_rebuild:
-            with unittest.mock.patch.object(
-                PreferencesDialog, "ShowModal", return_value=wx.ID_OK,
-            ):
-                with unittest.mock.patch.object(
-                    PreferencesDialog, "get_config", return_value=modified_cfg,
+            with unittest.mock.patch(
+                "bellbird.ui.main_window.PreferencesDialog"
+            ) as MockDialog:
+                instance = MockDialog.return_value
+                instance.ShowModal.return_value = wx.ID_OK
+                instance.get_config.return_value = modified_cfg
+                with unittest.mock.patch(
+                    "bellbird.ui.main_window.save_config"
                 ):
-                    with unittest.mock.patch(
-                        "bellbird.ui.main_window.save_config"
-                    ):
-                        frame._show_preferences()
+                    frame._show_preferences()
 
         mock_rebuild.assert_called_once()
         frame.Destroy()
-        app.MainLoop()
 
     def test_no_rebuild_when_overrides_unchanged(self):
         """GIVEN keymap_overrides unchanged in dialog
@@ -370,7 +361,7 @@ class TestMainWindowShowPreferences:
         from bellbird.core.config import BellbirdConfig
         from bellbird.ui.main_window import MainWindow
 
-        app = wx.App()
+        app = wx.GetApp()
         frame = MainWindow(title="Test")
 
         with unittest.mock.patch.object(
@@ -383,7 +374,6 @@ class TestMainWindowShowPreferences:
 
         mock_rebuild.assert_not_called()
         frame.Destroy()
-        app.MainLoop()
 
     def test_cancel_does_not_rebuild(self):
         """GIVEN user cancels PreferencesDialog
@@ -392,7 +382,7 @@ class TestMainWindowShowPreferences:
         from bellbird.core.config import BellbirdConfig
         from bellbird.ui.main_window import MainWindow
 
-        app = wx.App()
+        app = wx.GetApp()
         frame = MainWindow(title="Test")
 
         with unittest.mock.patch.object(
@@ -405,7 +395,6 @@ class TestMainWindowShowPreferences:
 
         mock_rebuild.assert_not_called()
         frame.Destroy()
-        app.MainLoop()
 
 
 # ══════════════════════════════════════════════════════════════════════════════

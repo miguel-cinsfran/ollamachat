@@ -107,7 +107,11 @@ class MainWindow(wx.Frame):
         else:
             self._toast = _NullToastSender()
         self._notifier = Notifier(
-            focus_check=lambda: not self.IsActive(),
+            # Notifier contract: focus_check returns True when the window HAS
+            # focus (it stays silent in that case). IsActive() is already that
+            # predicate — negating it inverted notifications (fired while
+            # focused, silent while in the background).
+            focus_check=lambda: self.IsActive(),
             toast_sender=self._toast,
             sound_player=self._sound_player,
             notifications_enabled=self._config.notifications_enabled,
@@ -125,13 +129,20 @@ class MainWindow(wx.Frame):
         self._tool_executor = ToolExecutor()
         self._focus_cycle_index = 0
         self._last_beep_time = 0.0
-        self._loading_timer: threading.Timer | None = None
-        self._url_fetch_timer: threading.Timer | None = None
+        self._loading_timer: "_PeriodicAnnouncer | None" = None
+        self._url_fetch_timer: "_PeriodicAnnouncer | None" = None
         self._model_load_thread: threading.Thread | None = None
+        self._is_loading_model: bool = False
+        # Models whose template was already reported as not supporting tools,
+        # so the warning is announced once per model instead of on every send.
+        self._tool_support_warned: set[str] = set()
         self._basename_to_path: dict[str, str] = {}
         self._vision_capable: bool = False
         self._tool_iteration_count: int = 0
         self._tool_executing: bool = False
+        # True while the pre-send checks (token_count/VRAM/tool-support) run on
+        # a background thread. Blocks re-entrant sends without faking a stream.
+        self._preparing_send: bool = False
         self._recent_items: dict[int, str] = {}
         self._recents_menu: wx.Menu | None = None
         self._archivo_menu: wx.Menu | None = None
@@ -141,6 +152,10 @@ class MainWindow(wx.Frame):
         self._latest_completion_tokens: int | None = None
         self._latest_tok_per_s: float | None = None
         self._current_n_ctx: int | None = None
+        # Cached so F2 never does blocking HTTP on the UI thread (it felt
+        # sluggish/"useless"). Refreshed on load / stop / watchdog.
+        self._loaded_model_name: str = ""
+        self._server_state_cache: str = "dead"
         self._vram_free_mb: int | None = None
         self._vram_total_mb: int | None = None
         self._fit_status: str | None = None
@@ -381,8 +396,10 @@ class MainWindow(wx.Frame):
 
         # ── Recientes submenu ─────────────────────────────────────────
         self._recents_menu = wx.Menu()
-        archivo_menu.Append(
-            wx.ID_ANY, "&Recientes", self._recents_menu,
+        # AppendSubMenu is the non-deprecated way to attach a submenu;
+        # Menu.Append(id, text, submenu, help) is deprecated in wxPython 4.2.x.
+        archivo_menu.AppendSubMenu(
+            self._recents_menu, "&Recientes",
             "Abrir una conversación reciente",
         )
 
@@ -449,7 +466,7 @@ class MainWindow(wx.Frame):
         personas_menu = wx.Menu()
         self.ID_PERSONAS = wx.NewIdRef()
         menu_personas = personas_menu.Append(
-            self.ID_PERSONAS, "&Gestionar personas...\tCtrl+P",
+            self.ID_PERSONAS, "&Gestionar personas...\tCtrl+Shift+P",
             "Seleccionar o editar personas / asistentes",
         )
         self.Bind(wx.EVT_MENU, lambda evt: self._show_personas(), menu_personas)
@@ -850,34 +867,50 @@ class MainWindow(wx.Frame):
 
     def _on_use_model(self) -> None:
         """Start llama-server with the selected model in a background thread."""
+        log = get_logger()
+        # Guard: the F7 accelerator and the "Iniciar servidor" menu reach this
+        # method directly, bypassing the disabled buttons. Without this guard a
+        # second trigger while a load is in flight spawns a second server-start
+        # thread and a second announce timer — the "se solapan" symptom.
+        if self._is_loading_model:
+            log.info("_on_use_model: ignored — a model load is already in flight")
+            self._speech.speak(
+                "Ya se está cargando un modelo, espera", interrupt=False
+            )
+            return
+
         model = self.get_model()
         if not model or not Path(model).is_file():
+            log.warning("_on_use_model: model file not found: %r", model)
             self._speech.speak("Archivo de modelo no encontrado", interrupt=True)
             return
         basename = Path(model).name
+        log.info("_on_use_model: requested load of %s", basename)
 
-        # Resolve mmproj: config → auto-detect → FileDialog
+        # Resolve mmproj (multimodal projector) WITHOUT ever popping a file
+        # dialog here. Vision is opt-in: priority is an explicit config entry,
+        # then a sibling auto-detected by name; if neither exists we load the
+        # model text-only. Forcing the user to pick a projector for every
+        # (usually text-only) model was the cause of the "Usar modelo abre el
+        # explorador" bug — and picking the model file itself by mistake then
+        # made llama-server fail to load it as a projector.
+        model_resolved = Path(model).resolve()
         mmproj_path: str | None = self._config.get_mmproj_for(model)
+        # A model can never be its own projector. Drop a bad stored value
+        # (a known way the old forced-dialog flow corrupted the config).
+        if mmproj_path and Path(mmproj_path).resolve() == model_resolved:
+            mmproj_path = None
+            self._config.model_mmproj.pop(basename, None)
+            try:
+                save_config(self._config)
+            except OSError:
+                pass
         if mmproj_path is None:
             auto = find_mmproj_for_model(Path(model))
-            if auto is not None:
+            if auto is not None and auto.resolve() != model_resolved:
                 mmproj_path = str(auto)
-            else:
-                # Show FileDialog on the main thread
-                model_dir = str(Path(model).parent) if Path(model).parent.exists() else ""
-                dlg = wx.FileDialog(
-                    self,
-                    message="Seleccione el archivo mmproj",
-                    defaultDir=model_dir,
-                    defaultFile="",
-                    wildcard="*.gguf",
-                    style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST,
-                )
-                if dlg.ShowModal() == wx.ID_OK:
-                    mmproj_path = dlg.GetPath()
-                dlg.Destroy()
 
-        # Persist manual selection
+        # Persist a valid projector (best-effort) so future loads skip detection.
         if mmproj_path is not None:
             self._config.model_mmproj[basename] = str(Path(mmproj_path).resolve())
             try:
@@ -893,12 +926,23 @@ class MainWindow(wx.Frame):
             if "n_gpu_layers" in saved:
                 self._config.n_gpu_layers = saved["n_gpu_layers"]
 
+        log.info(
+            "_on_use_model: starting server — model=%s mmproj=%s ctx=%s ngl=%s port=%s",
+            basename, mmproj_path, self._config.ctx_size,
+            self._config.n_gpu_layers, self._config.port,
+        )
+        self._is_loading_model = True
+        self._play_loop("connecting")  # warm loop until the server responds
         self.use_model_button.Disable()
         self.restart_server_button.Disable()
         self._speech.speak(
             f"Iniciando servidor con {basename}...", interrupt=True
         )
         self.status_bar.SetStatusText("Iniciando servidor...", 0)
+        # Cancel any stale loading timer before arming a new one (defensive —
+        # the _is_loading_model guard above already prevents the common race).
+        if self._loading_timer is not None:
+            self._loading_timer.cancel()
         self._loading_timer = self._make_announce_timer()
         self._model_load_thread = threading.Thread(
             target=self._model_load_worker,
@@ -937,57 +981,26 @@ class MainWindow(wx.Frame):
 
     def _make_announce_timer(
         self, phrase: str = "Cargando modelo, por favor espera..."
-    ) -> threading.Timer:
-        """Create a chained timer that announces a phrase every 8 seconds.
+    ) -> "_PeriodicAnnouncer":
+        """Return a started, self-cancelling periodic announcer.
 
-        Args:
-            phrase: The text to announce each tick (default loading message).
-
-        First tick fires after 8 seconds; re-arms itself every 8s.
-        Cancelled when the owning worker completes.
-
-        The re-arm writes to whichever slot the caller used to store the
-        returned Timer. The convention is that the caller does
-        ``self._<some_slot> = self._make_announce_timer(phrase=...)`` and
-        then cancels ``self._<some_slot>`` on completion. This avoids the
-        bug where two concurrent operations (e.g. model load + URL fetch)
-        would race to overwrite ``self._loading_timer`` during re-arm,
-        causing the cancel in one completion callback to miss the
-        re-armed timer of the other.
+        The caller stores it in a slot (``self._loading_timer`` /
+        ``self._url_fetch_timer``) and calls ``.cancel()`` on completion. The
+        announcer self-cancels via an internal flag, so cancellation is robust
+        regardless of how many ticks have fired (see ``_PeriodicAnnouncer``).
         """
-        # Detect which slot the caller used by scanning well-known attrs.
-        # We pick the first slot whose current value is the timer we are
-        # about to return. If none match (e.g. caller forgot to assign),
-        # fall back to a private list to avoid leaking the re-arm.
-        caller_slot: str | None = None
-        for slot_name in ("_loading_timer", "_url_fetch_timer"):
-            if getattr(self, slot_name, None) is None:
-                caller_slot = slot_name
-                break
-
-        def _announce() -> None:
-            if self._is_closing:
-                return
-            self._speech.speak(phrase, interrupt=False)
-            next_t = threading.Timer(8.0, _announce)
-            next_t.daemon = True
-            if caller_slot is not None:
-                # Only overwrite the slot if the current value is still
-                # the previous timer we chained from. If the caller
-                # already cancelled and reset the slot, the previous
-                # timer is dead and we must not re-arm into it.
-                current = getattr(self, caller_slot, None)
-                if current is t or current is None:
-                    setattr(self, caller_slot, next_t)
-            next_t.start()
-
-        t = threading.Timer(8.0, _announce)
-        t.daemon = True
-        t.start()
-        return t
+        return _PeriodicAnnouncer(
+            self._speech, phrase, 8.0, lambda: self._is_closing
+        ).start()
 
     def _on_start_server_done(self, ok: bool, message: str, vision_capable: bool = False) -> None:
         """Handle the result of background server start."""
+        get_logger().info(
+            "_on_start_server_done: ok=%s vision=%s message=%r",
+            ok, vision_capable, message,
+        )
+        self._is_loading_model = False
+        self._stop_loop()  # end the "connecting" loop; success/fail cue follows
         self._vision_capable = vision_capable
         if self._loading_timer is not None:
             self._loading_timer.cancel()
@@ -997,19 +1010,82 @@ class MainWindow(wx.Frame):
         if ok:
             self.status_bar.SetStatusText("Servidor listo", 0)
             loaded = self._client.get_loaded_model()
+            self._loaded_model_name = loaded or ""
+            self._server_state_cache = "ready"
             self._update_title(loaded or None)
             if loaded:
                 self._persist_last_model(Path(loaded).name)
-            if "corriendo" not in message:
-                self._scan_models()
+            self._sync_button_state(ok)
+            # Fetch context window + VRAM + fit off the UI thread so F2 can show
+            # a real "used/total (%)", free VRAM and fit — these fields were
+            # never populated before, so those toggles always rendered empty.
+            self._fetch_server_meta_async()
+            # ONE clear success announcement, spoken last. We deliberately do
+            # NOT re-scan models here: the selector is already populated from
+            # startup, and _scan_models' async "N modelos encontrados" landed
+            # after this line and clobbered it, so the user never heard whether
+            # the server actually connected.
             if loaded:
-                self._speech.output(f"Modelo: {Path(loaded).stem}")
+                # output() = voz + braille, so the model name reaches a braille
+                # display. Safe now that the clobbering _scan_models() re-announce
+                # is gone.
+                self._speech.output(f"Servidor listo. Modelo {Path(loaded).stem}")
+            else:
+                self._speech.output("Servidor listo")
+            self._notifier.notify("server_ready", "Servidor listo")
         else:
             self.status_bar.SetStatusText("Error al iniciar", 0)
-        self._sync_button_state(ok)
-        self._speech.speak(message, interrupt=True)
-        if ok:
-            self._notifier.notify("server_ready", "Servidor listo")
+            self._server_state_cache = "dead"
+            self._loaded_model_name = ""
+            self._current_n_ctx = None
+            self._sync_button_state(ok)
+            self._play_cue("error")
+            self._speech.speak(message, interrupt=True)
+
+    def _fetch_server_meta_async(self) -> None:
+        """Fetch n_ctx + VRAM + fit on a daemon thread; store via CallAfter.
+
+        Populates the F2 fields that were never wired before: context window
+        (``_current_n_ctx``), free/total VRAM, and the fit estimate. Without
+        this the ``vram`` and ``fit`` status toggles existed in Preferences but
+        always rendered empty. ``get_model()`` is read here on the UI thread
+        (it touches the combo box) and captured for the worker.
+        """
+        model_path = self.get_model()
+        ctx_size = self._config.ctx_size
+
+        def worker() -> None:
+            n_ctx = self._client.get_n_ctx()
+            free, total = read_vram()
+            fit_status: str | None = None
+            try:
+                if model_path:
+                    meta = read_gguf_metadata(model_path)
+                    if meta is not None:
+                        fit_status = estimate_fit(meta, ctx_size, free).status
+            except Exception:
+                fit_status = None
+            wx.CallAfter(
+                self._on_server_meta_fetched, n_ctx, free, total, fit_status
+            )
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_server_meta_fetched(
+        self, n_ctx: int | None, vram_free: int | None,
+        vram_total: int | None, fit_status: str | None,
+    ) -> None:
+        """Store fetched server/VRAM metadata on the main thread (for F2)."""
+        if self._is_closing:
+            return
+        self._current_n_ctx = n_ctx
+        self._vram_free_mb = vram_free
+        self._vram_total_mb = vram_total
+        self._fit_status = fit_status
+        get_logger().info(
+            "server meta: n_ctx=%s vram=%s/%s fit=%s",
+            n_ctx, vram_free, vram_total, fit_status,
+        )
 
     def _persist_last_model(self, basename: str) -> None:
         """Save the just-loaded model basename to the persisted config.
@@ -1093,6 +1169,9 @@ class MainWindow(wx.Frame):
         # Server is running and healthy
         loaded = result.loaded_model or ""
         log.info("Startup: connected, model=%r", loaded)
+        self._loaded_model_name = loaded
+        self._server_state_cache = "ready"
+        self._fetch_server_meta_async()
         if loaded:
             self.status_bar.SetStatusText(f"Conectado: {loaded}", 0)
         else:
@@ -1172,12 +1251,16 @@ class MainWindow(wx.Frame):
         log.info("Stop server button clicked")
 
         self._vision_capable = False
+        self._server_state_cache = "dead"
+        self._loaded_model_name = ""
+        self._current_n_ctx = None
         self.status_bar.SetStatusText("Deteniendo servidor...", 0)
         self._speech.speak("Deteniendo servidor...", interrupt=True)
 
         stop_server()
 
         self.status_bar.SetStatusText("Servidor detenido", 0)
+        self._play_cue("server_stopped")
         self._speech.speak("Servidor detenido", interrupt=True)
         self._sync_button_state(False)
         self._update_title(None)
@@ -1205,11 +1288,13 @@ class MainWindow(wx.Frame):
             mode = "short"
             self._last_f2_mono = now
 
-        # Build SessionSnapshot
-        loaded = self._client.get_loaded_model()
+        # Build SessionSnapshot from CACHED values only — F2 must never block
+        # the UI thread on HTTP (that was the lag the user felt on every press).
+        # The model name and server state are refreshed on load/stop/watchdog.
+        loaded = self._loaded_model_name
         model_name = Path(loaded).stem if loaded else ""
 
-        server_state = self._client.check_state()
+        server_state = self._server_state_cache
 
         progress_tokens = (
             self._latest_completion_tokens if self._is_generating else None
@@ -1235,6 +1320,10 @@ class MainWindow(wx.Frame):
 
         toggles = self._config.status_toggles_as_set()
         text = format_status(snapshot, toggles, mode)
+        get_logger().info(
+            "F2 announce_status: mode=%s toggles=%d text=%r",
+            mode, len(toggles), text[:160],
+        )
 
         if not text:
             return  # all toggles off — no speech
@@ -1245,16 +1334,44 @@ class MainWindow(wx.Frame):
             self._speech.output(text)
 
     def _set_initial_focus(self) -> None:
-        """Set initial focus based on model availability, without I/O.
+        """Land initial focus on the model selector.
 
-        Called via wx.CallAfter after the window is shown. The startup
-        probe runs on a background thread; focus is adjusted later when
-        the probe result arrives.
+        Called via wx.CallAfter after the window is shown. The selector is
+        the natural first stop — the user picks a model and presses "Usar
+        modelo" — so focus lands there even while it is still empty (the
+        async scan populates it a moment later). Previously focus went to a
+        button, which felt like being dropped mid-toolbar.
         """
-        if self.model_selector.GetCount() > 0:
-            self.use_model_button.SetFocus()
-        else:
-            self.scan_models_button.SetFocus()
+        self.model_selector.SetFocus()
+
+    def _play_cue(self, event: str) -> None:
+        """Play a local sound cue for *event*, honouring the sound settings.
+
+        For UI feedback that is NOT a background notification (so it should
+        not also raise a toast). Notification-class events keep going through
+        ``self._notifier.notify(...)``, which plays the same WAV plus a toast.
+        Never raises.
+        """
+        if self._config.sounds_enabled and self._config.sound_theme != "none":
+            try:
+                self._sound_player.play(event)
+            except Exception:
+                pass
+
+    def _play_loop(self, event: str) -> None:
+        """Start a looping sound cue (e.g. the "connecting" pad). Never raises."""
+        if self._config.sounds_enabled and self._config.sound_theme != "none":
+            try:
+                self._sound_player.play_loop(event)
+            except Exception:
+                pass
+
+    def _stop_loop(self) -> None:
+        """Stop any looping/async sound cue. Never raises."""
+        try:
+            self._sound_player.stop()
+        except Exception:
+            pass
 
     def _maybe_beep(self) -> None:
         """Emit a Windows beep during token generation (throttled to 1/s)."""
@@ -1306,11 +1423,20 @@ class MainWindow(wx.Frame):
         text nor images are present, the message is ignored.
         """
         self._aborted = False  # Reset abort flag before each new generation
-        if self._is_generating or self._tool_executing:
+        if self._is_generating or self._tool_executing or self._preparing_send:
             self._speech.speak("Ya se está generando una respuesta", interrupt=False)
             return
 
-        log = get_logger()
+        # Don't fire a request while the server is still loading a model: it
+        # would only raise ConnectionError (server not accepting yet) and
+        # spuriously trip the "servidor caído" watchdog. This is the common
+        # case during a hot model swap.
+        if self._is_loading_model:
+            self._speech.speak(
+                "El servidor aún está cargando el modelo, espera un momento",
+                interrupt=True,
+            )
+            return
 
         # Read input and attachments
         user_text = self.chat_panel.get_input_text()
@@ -1320,6 +1446,8 @@ class MainWindow(wx.Frame):
         # C3: allow empty text if there are images attached
         if not user_text.strip() and not attached_images:
             return
+
+        self._play_cue("message_sent")
 
         # REQ-MULTI-003: drop images when model is not vision-capable
         if attached_images and not self._vision_capable:
@@ -1390,16 +1518,63 @@ class MainWindow(wx.Frame):
         else:
             self.chat_panel.append_user_message("[imagen enviada]")
 
-        # ── Pre-send guard (T-WU2-04) ──────────────────────────────────
+        # ── Pre-send prep (off the UI thread) ──────────────────────────
+        # token_count (/tokenize HTTP), read_vram (nvidia-smi subprocess) and
+        # check_tool_support (/props HTTP) used to run synchronously here and
+        # froze NVDA for 2-3 s on every send. Move them to a daemon thread and
+        # resume in _continue_send via wx.CallAfter. _preparing_send blocks a
+        # second enviar during the window without faking _is_generating.
         joined_text = user_text
         if attached_text:
             joined_text = f"{user_text}\n\n{attached_text}" if user_text.strip() else attached_text
         model_path = self.get_model()
-        vram_free = read_vram()[0] if self._vram_free_mb is None else self._vram_free_mb
-        model_bytes = estimate_size_bytes(model_path) if model_path else None
-        token_est = token_count(
-            joined_text, self._client.base_url, self._client._session, timeout=5.0
-        ) or 0
+        tools = get_enabled_tools(self._config)
+        self._preparing_send = True
+
+        def prep_worker() -> None:
+            try:
+                vram_free = (
+                    read_vram()[0] if self._vram_free_mb is None else self._vram_free_mb
+                )
+                model_bytes = estimate_size_bytes(model_path) if model_path else None
+                token_est = token_count(
+                    joined_text, self._client.base_url, self._client._session, timeout=5.0
+                ) or 0
+                tool_support = bool(self._client.check_tool_support()) if tools else False
+            except Exception:
+                # Never strand the send path: fall back to permissive defaults.
+                get_logger().exception("send_message prep_worker failed")
+                vram_free, model_bytes, token_est, tool_support = (
+                    self._vram_free_mb, None, 0, bool(tools),
+                )
+            wx.CallAfter(
+                self._continue_send,
+                api_messages, tools, vram_free, model_bytes, token_est, tool_support,
+                user_text,
+            )
+
+        threading.Thread(target=prep_worker, daemon=True).start()
+
+    def _continue_send(
+        self,
+        api_messages: list[dict],
+        tools,
+        vram_free: int | None,
+        model_bytes: int | None,
+        token_est: int,
+        tool_support: bool,
+        user_text: str,
+    ) -> None:
+        """Resume send_message on the UI thread after background prep.
+
+        Runs the pre-send verdict and, if allowed, starts streaming. Always
+        clears ``_preparing_send`` so a blocked/aborted send does not wedge the
+        re-entry guard.
+        """
+        self._preparing_send = False
+        if self._is_closing:
+            return
+        log = get_logger()
 
         presend_snap = PreSendSnapshot(
             estimated_tokens=token_est,
@@ -1444,16 +1619,21 @@ class MainWindow(wx.Frame):
         self._speech.speak("Generando respuesta...", interrupt=True)
 
         self._tool_iteration_count = 0
-        tools = get_enabled_tools(self._config)
-        if tools and not self._client.check_tool_support():
+        if tools and not tool_support:
             tools = None
-            try:
-                self._speech.speak(
-                    "Plantilla del modelo no soporta herramientas. Desactivado.",
-                    interrupt=True,
-                )
-            except Exception:
-                pass
+            # Announce ONCE per model, and never with interrupt=True: it used
+            # to fire on every send 1 ms after "Generando respuesta…", cutting
+            # that off so the user heard nothing useful when pressing enviar.
+            model_key = self.get_model()
+            if model_key not in self._tool_support_warned:
+                self._tool_support_warned.add(model_key)
+                try:
+                    self._speech.speak(
+                        "Plantilla del modelo no soporta herramientas. Desactivado.",
+                        interrupt=False,
+                    )
+                except Exception:
+                    pass
 
         self._client.chat_stream(
             messages=api_messages,
@@ -1596,7 +1776,7 @@ class MainWindow(wx.Frame):
                 f"Comando bloqueado por seguridad: {command[:80]}", interrupt=True
             )
             self.chat_panel.append_tool_blocked(tool_name, command)
-            self._tool_executing = False
+            self._finish_tool_turn()
             return
 
         if tool_name in FILE_TOOL_NAMES:
@@ -1633,15 +1813,39 @@ class MainWindow(wx.Frame):
             self._permission_manager.grant_session(tool_name, dlg.get_risk())
             self._run_tool_and_show(tool_name, tool_call_id, edited_cmd, args)
         else:
-            self._speech.speak("Ejecucion denegada.", interrupt=True)
+            self._speech.speak("Ejecución denegada.", interrupt=True)
             self.chat_panel.append_tool_denied(tool_name)
-            self._tool_executing = False
+            self._finish_tool_turn()
+
+    def _finish_tool_turn(self) -> None:
+        """Reset generation state when a tool call ends WITHOUT continuing.
+
+        Blocked or denied tools end the model's turn. If we don't clear the
+        generating flags here, ``send_message``'s guard stays armed and the
+        user "can't type anything" — the freeze reported after denying a
+        command. We also hand focus back to the input. Idempotent and safe to
+        race with ``_on_done`` (which early-returns once ``_is_generating`` is
+        False).
+        """
+        self._tool_executing = False
+        self._is_generating = False
+        if self.chat_panel._is_generating:
+            self.chat_panel.end_generation()
+        self.status_bar.SetStatusText("", 2)
+        try:
+            self.chat_panel.message_input.SetFocus()
+        except Exception:
+            pass
 
     def _run_tool_and_show(
         self, tool_name: str, tool_call_id: str, command: str,
         args: dict | None = None,
     ) -> None:
         """Ejecuta la tool en hilo de fondo para no bloquear la UI."""
+        # Show WHICH command runs, so the result row below has context (the list
+        # previously showed only the output, with no sign of what produced it).
+        self.chat_panel.append_tool_call(tool_name, command)
+
         def worker() -> None:
             if tool_name in FILE_TOOL_NAMES and args is not None:
                 result = self._tool_executor.run_file_tool(tool_name, args)
@@ -1831,6 +2035,19 @@ class MainWindow(wx.Frame):
             "_on_server_state_checked: state=%r error=%r",
             state, error_text[:80] if error_text else "",
         )
+        # Keep the F2 cache honest with what the watchdog just observed.
+        self._server_state_cache = state
+
+        # During an in-flight model load the server is briefly unreachable;
+        # check_state() returns "dead" (connection refused) even though it is
+        # really just starting. Don't cry "servidor caído" — that produced the
+        # spurious restart dialog during a hot model swap.
+        if self._is_loading_model:
+            log.info("_on_server_state_checked: ignoring %r — model load in flight", state)
+            self._speech.speak(
+                "Cargando modelo, por favor espera…", interrupt=True
+            )
+            return
 
         if state == "dead":
             self._speech.speak(
@@ -1897,7 +2114,11 @@ class MainWindow(wx.Frame):
             wx.EVT_BUTTON, lambda evt: self._on_restart_no(dlg)
         )
 
+        get_logger().info("_show_restart_dialog: shown")
         result = dlg.ShowModal()
+        get_logger().info(
+            "_show_restart_dialog: choice=%s", "restart" if result == wx.ID_YES else "exit"
+        )
         if result == wx.ID_YES:
             self._on_use_model()
         dlg.Destroy()
@@ -2025,7 +2246,12 @@ class MainWindow(wx.Frame):
         if self._recents_menu is None:
             return
         menu = self._recents_menu
-        menu.Clear()
+        # wx.Menu has no Clear(); remove items explicitly and drop their
+        # EVT_MENU bindings so they don't accumulate on every menu open.
+        for old_id in self._recent_items:
+            self.Unbind(wx.EVT_MENU, id=old_id)
+        for item in list(menu.GetMenuItems()):
+            menu.Delete(item)
         self._recent_items.clear()
 
         valid = [
@@ -2198,20 +2424,30 @@ class MainWindow(wx.Frame):
         )
         if dialog.ShowModal() == wx.ID_OK:
             filepath = dialog.GetPath()
-            Conversation.save(
-                self._conversation, filepath,
-                system_prompt=self._config.system_prompt,
-            )
-            # Persist session path and recents only on successful save
-            self._config.last_session_path = os.path.abspath(filepath)
-            self._config.recent_files = update_recents(
-                filepath, self._config.recent_files,
-            )
             try:
-                save_config(self._config)
-            except OSError:
-                pass
-            self._speech.speak("Conversación guardada", interrupt=True)
+                Conversation.save(
+                    self._conversation, filepath,
+                    system_prompt=self._config.system_prompt,
+                )
+            except Exception as e:
+                # Disk full, permission denied, etc. Announce via speech
+                # (primary feedback for screen-reader users) and leave config
+                # untouched — never crash on a failed save.
+                self._speech.speak(
+                    f"No se pudo guardar la conversación: {e}",
+                    interrupt=True,
+                )
+            else:
+                # Persist session path and recents only on successful save
+                self._config.last_session_path = os.path.abspath(filepath)
+                self._config.recent_files = update_recents(
+                    filepath, self._config.recent_files,
+                )
+                try:
+                    save_config(self._config)
+                except OSError:
+                    pass
+                self._speech.speak("Conversación guardada", interrupt=True)
         dialog.Destroy()
 
     def load_conversation(self) -> None:
@@ -2287,6 +2523,12 @@ class MainWindow(wx.Frame):
         self._tool_iteration_count = 0
         self._pre_send_warned_this_conv = False
         self._context_warned_for_turn = False
+        # Reset the context meter so F2 doesn't report the previous chat's usage.
+        self._latest_prompt_tokens = None
+        self._latest_completion_tokens = None
+        self._latest_tok_per_s = None
+        self.status_bar.SetStatusText("", 1)
+        self._play_cue("new_conversation")
         self._speech.speak("Nueva conversación", interrupt=True)
 
     # ── Window Close ──────────────────────────────────────────────────────────
@@ -2445,3 +2687,57 @@ class MainWindow(wx.Frame):
         dlg.save_if_dirty()
         dlg.Destroy()
         save_config(self._config)
+
+
+# Defined AFTER MainWindow so MainWindow.__init__ remains the first __init__ in
+# the module (some AST tests locate "the first __init__" by walk order).
+# _make_announce_timer references this lazily at call time, so definition order
+# does not matter at runtime.
+class _PeriodicAnnouncer:
+    """Re-announce a phrase every ``interval`` seconds until cancelled.
+
+    Replaces an earlier chained-``threading.Timer`` design whose re-arm logic
+    only tracked the FIRST tick: it compared the live timer against a stale
+    closure variable, so from the second tick onward the running timer became
+    untracked and ``cancel()`` silently missed it. The symptom was the
+    "Cargando modelo, por favor espera…" announcement looping forever after a
+    model load finished or failed.
+
+    Cancellation here is driven by an instance flag checked before every
+    re-arm, so it is robust no matter how many ticks have fired or which
+    attribute slot on ``MainWindow`` holds the announcer.
+    """
+
+    def __init__(self, speech, phrase: str, interval: float, is_closing) -> None:
+        self._speech = speech
+        self._phrase = phrase
+        self._interval = interval
+        self._is_closing = is_closing  # callable -> bool
+        self._cancelled = False
+        self._timer: threading.Timer | None = None
+
+    def start(self) -> "_PeriodicAnnouncer":
+        self._arm()
+        return self
+
+    def _arm(self) -> None:
+        if self._cancelled:
+            return
+        t = threading.Timer(self._interval, self._tick)
+        t.daemon = True
+        self._timer = t
+        t.start()
+
+    def _tick(self) -> None:
+        if self._cancelled or self._is_closing():
+            return
+        try:
+            self._speech.speak(self._phrase, interrupt=False)
+        except Exception:
+            pass
+        self._arm()
+
+    def cancel(self) -> None:
+        self._cancelled = True
+        if self._timer is not None:
+            self._timer.cancel()

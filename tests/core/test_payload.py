@@ -84,6 +84,34 @@ class TestBuildApiMessages:
         assert len(msgs) == 1
         assert msgs[0]["role"] == "user"
 
+    def test_tools_enabled_injects_environment_system_prompt(self):
+        """With tools on, a SYSTEM INFORMATION message is prepended."""
+        cfg = BellbirdConfig(system_prompt="", tools_enabled=True)
+        conv = Conversation()
+        conv.add_message("user", "Hola")
+        msgs = build_api_messages(cfg, conv)
+        assert msgs[0]["role"] == "system"
+        assert "INFORMACIÓN DEL SISTEMA" in msgs[0]["content"]
+        assert "HERRAMIENTAS" in msgs[0]["content"]
+        assert msgs[1]["role"] == "user"
+
+    def test_tools_enabled_combines_with_user_system_prompt(self):
+        """Tool prompt and user system prompt share ONE system message."""
+        cfg = BellbirdConfig(system_prompt="Sos Bellbird.", tools_enabled=True)
+        conv = Conversation()
+        msgs = build_api_messages(cfg, conv)
+        systems = [m for m in msgs if m["role"] == "system"]
+        assert len(systems) == 1
+        assert "INFORMACIÓN DEL SISTEMA" in systems[0]["content"]
+        assert "Sos Bellbird." in systems[0]["content"]
+
+    def test_tools_disabled_no_environment_prompt(self):
+        """Default (tools off) keeps the old behaviour: no env prompt."""
+        cfg = BellbirdConfig(system_prompt="X.")
+        conv = Conversation()
+        msgs = build_api_messages(cfg, conv)
+        assert msgs[0] == {"role": "system", "content": "X."}
+
     def test_returns_new_list_each_call(self):
         cfg = BellbirdConfig(system_prompt="S.")
         conv = Conversation()

@@ -15,7 +15,7 @@ import wx
 @pytest.fixture(scope="module")
 def app():
     """Create a wx.App for the test module."""
-    return wx.App()
+    return wx.GetApp()
 
 
 def _make_dialog(app, voices=None, current_voice="", current_rate=0):
@@ -27,6 +27,18 @@ def _make_dialog(app, voices=None, current_voice="", current_rate=0):
     dlg = VoiceDialog(None, voices, current_voice=current_voice, current_rate=current_rate)
     dlg.Show()  # non-blocking — avoids hanging on WSL
     return dlg
+
+
+def _find(dlg, name):
+    """Find a named child scoped to ``dlg``.
+
+    ``wx.Window.FindWindowByName`` is a *static* method whose ``parent``
+    defaults to ``None`` — so ``dlg.FindWindowByName(name)`` searches every
+    live wx window globally. Because ``Destroy()`` is deferred, a control with
+    the same name from a previous (not-yet-reaped) dialog can be returned
+    instead of this dialog's. Always pass ``dlg`` as the explicit parent.
+    """
+    return wx.Window.FindWindowByName(name, dlg)
 
 
 class TestVoiceDialog:
@@ -69,7 +81,7 @@ class TestVoiceDialog:
         """Selecting a different voice updates get_voice()."""
         dlg = _make_dialog(app, voices=["Voice A", "Voice B"], current_voice="Voice A")
         try:
-            choice = dlg.FindWindowByName("voice_choice")
+            choice = _find(dlg, "voice_choice")
             assert choice is not None, "voice_choice not found"
             choice.SetStringSelection("Voice B")
             assert dlg.get_voice() == "Voice B", (
@@ -82,7 +94,7 @@ class TestVoiceDialog:
         """Changing the rate slider updates get_rate()."""
         dlg = _make_dialog(app, current_rate=0)
         try:
-            slider = dlg.FindWindowByName("rate_slider")
+            slider = _find(dlg, "rate_slider")
             assert slider is not None, "rate_slider not found"
             slider.SetValue(7)
             assert dlg.get_rate() == 7, (

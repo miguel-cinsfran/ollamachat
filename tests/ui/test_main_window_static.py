@@ -660,23 +660,33 @@ def test_assistant_tool_calls_inserted_in_on_tool_result() -> None:
 
 
 def test_send_message_gates_on_check_tool_support() -> None:
-    """send_message references check_tool_support and gates tools on it."""
+    """Tool support is probed in send_message's prep and gated in _continue_send.
+
+    check_tool_support (an HTTP /props call) was moved off the UI thread into
+    send_message's background prep_worker; the resulting tools=None gating
+    happens in the _continue_send resume callback.
+    """
     import re
     from pathlib import Path
     src = Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
-    m = re.search(
+    send_m = re.search(
         r"def send_message\(self\) -> None:.*?"
         r"(?=\n    def |\nclass |\Z)",
         src, re.DOTALL,
     )
-    assert m is not None, "send_message not found"
-    body = m.group(0)
-    assert "check_tool_support" in body, (
-        "send_message must call check_tool_support() to probe /props"
+    assert send_m is not None, "send_message not found"
+    assert "check_tool_support" in send_m.group(0), (
+        "send_message must probe check_tool_support() (in its background prep)"
     )
+    cont_m = re.search(
+        r"def _continue_send\(.*?(?=\n    def |\nclass |\Z)",
+        src, re.DOTALL,
+    )
+    assert cont_m is not None, "_continue_send not found"
+    body = cont_m.group(0)
     # When check_tool_support is False, tools must be set to None
     assert "tools = None" in body or "tools=None" in body, (
-        "send_message must set tools=None when check_tool_support is False"
+        "_continue_send must set tools=None when tool support is False"
     )
 
 
@@ -1359,13 +1369,15 @@ def test_f7_accelerator_defined():
     assert "from bellbird.core.keymap import" in source, (
         "keymap module not imported in main_window.py"
     )
-    # Verify keymap.py defines start_server with F7 keycode (345 = WXK_F7)
+    # Verify keymap.py defines start_server with the F7 keycode. The binding
+    # uses the named constant _WXK_F7 (= 346 in wxPython 4.2; it was wrongly
+    # 345 = physically F6 before the off-by-one fix).
     km_path = source_path.parent.parent / "core" / "keymap.py"
     km_source = km_path.read_text(encoding="utf-8")
     assert '"start_server"' in km_source, "start_server not in DEFAULT_KEYMAP"
-    keycode_line = [l for l in km_source.split("\n") if "start_server" in l][0]
-    assert "345" in keycode_line, (
-        "WXK_F7 (345) not found in start_server binding in keymap.py"
+    keycode_line = [l for l in km_source.split("\n") if '"start_server"' in l][0]
+    assert "_WXK_F7" in keycode_line or "346" in keycode_line, (
+        "WXK_F7 (346) not found in start_server binding in keymap.py"
     )
 
 
@@ -1504,23 +1516,25 @@ def test_menu_servidor_present():
 
 
 def test_params_from_config():
-    """send_message calls build_options(self._config) from core.payload.
+    """_continue_send calls build_options(self._config) from core.payload.
 
     Refactored for v0.7.2: extracted into _build_options() (module-level).
     Refactored for v0.12.0: moved to core/payload.py as build_options().
-    send_message must delegate instead of building an inline dict.
+    Refactored again: the send path's tail (build_options + chat_stream) moved
+    to the _continue_send resume callback so token_count/VRAM/tool-support run
+    off the UI thread. Either method must delegate instead of inlining a dict.
     """
     source_path = _get_ui_path("main_window.py")
     source = source_path.read_text(encoding="utf-8")
     tree = ast.parse(source)
 
-    # 1. Verify send_message calls build_options(self._config)
+    # 1. Verify _continue_send calls build_options(self._config)
     method = None
     for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == "send_message":
+        if isinstance(node, ast.FunctionDef) and node.name == "_continue_send":
             method = node
             break
-    assert method is not None, "send_message method not found"
+    assert method is not None, "_continue_send method not found"
 
     calls_build_options = False
     for node in ast.walk(method):
@@ -1530,11 +1544,11 @@ def test_params_from_config():
                 calls_build_options = True
                 break
     assert calls_build_options, (
-        "send_message must call build_options(self._config) "
+        "_continue_send must call build_options(self._config) "
         "instead of building an inline options dict"
     )
 
-    # 2. Verify no inline dict with temperature/max_tokens in send_message
+    # 2. Verify no inline dict with temperature/max_tokens in _continue_send
     has_inline_options = False
     for node in ast.walk(method):
         if not isinstance(node, ast.Dict):
@@ -2136,7 +2150,11 @@ def test_build_options_stop_conditional():
 
 
 def test_both_call_sites_use_build_options():
-    """Both send_message and _continue_after_tool call build_options from core.payload."""
+    """Both _continue_send and _continue_after_tool call build_options from core.payload.
+
+    The first-turn send path's build_options call moved from send_message to its
+    _continue_send resume callback (off-UI-thread prep refactor).
+    """
     source_path = _get_ui_path("main_window.py")
     source = source_path.read_text(encoding="utf-8")
     tree = ast.parse(source)
@@ -2159,8 +2177,8 @@ def test_both_call_sites_use_build_options():
                             return True
         return False
 
-    assert _method_calls_build_options("send_message"), (
-        "send_message must call build_options(self._config)"
+    assert _method_calls_build_options("_continue_send"), (
+        "_continue_send must call build_options(self._config)"
     )
     assert _method_calls_build_options("_continue_after_tool"), (
         "_continue_after_tool must call build_options(self._config)"

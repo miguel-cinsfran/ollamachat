@@ -28,7 +28,7 @@ def _make_panel(on_send=None, on_delete=None, on_regenerate=None, on_truncate=No
     """Create a ChatPanel with stubs for testing."""
     from bellbird.ui.chat_panel import ChatPanel
 
-    app = wx.App()
+    app = wx.GetApp()
     frame = wx.Frame(None)
     speech = FakeSpeech()
     panel = ChatPanel(
@@ -64,7 +64,6 @@ class TestCopyLastMessage:
             wx.TheClipboard.Close()
         assert speech.last_message == "Último mensaje copiado"
         frame.Destroy()
-        app.MainLoop()
 
     def test_falls_back_to_user(self):
         """GIVEN history with only a user message
@@ -80,7 +79,6 @@ class TestCopyLastMessage:
             wx.TheClipboard.Close()
         assert speech.last_message == "Último mensaje copiado"
         frame.Destroy()
-        app.MainLoop()
 
     def test_empty_history_noop(self):
         """GIVEN empty history
@@ -100,7 +98,6 @@ class TestCopyLastMessage:
             wx.TheClipboard.Close()
         assert speech.last_message == "Nada que copiar"
         frame.Destroy()
-        app.MainLoop()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -131,7 +128,6 @@ class TestDeleteLastExchange:
         assert len(deleted) == 2  # assistant A2 + user Q2
         assert speech.last_message == "Último intercambio eliminado"
         frame.Destroy()
-        app.MainLoop()
 
     def test_single_user_removed(self):
         """GIVEN history ending with a lone user (no assistant yet)
@@ -148,7 +144,6 @@ class TestDeleteLastExchange:
         assert panel._history == [("user", "Q1"), ("assistant", "A1")]
         assert len(deleted) == 1
         frame.Destroy()
-        app.MainLoop()
 
     def test_noop_mid_generation(self):
         """GIVEN _is_generating is True
@@ -161,7 +156,6 @@ class TestDeleteLastExchange:
         assert len(panel._history) == 2
         assert speech.last_message == "Generación en curso"
         frame.Destroy()
-        app.MainLoop()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -193,7 +187,6 @@ class TestEditMessage:
         assert len(truncated) == 1
         assert truncated[0] == 2  # conv_idx = index - system_count
         frame.Destroy()
-        app.MainLoop()
 
     def test_next_is_noop(self):
         """GIVEN any history
@@ -206,7 +199,6 @@ class TestEditMessage:
         assert panel._history == original
         assert speech.last_message == "No hay mensaje siguiente"
         frame.Destroy()
-        app.MainLoop()
 
     def test_no_previous_when_empty(self):
         """GIVEN empty history
@@ -216,7 +208,6 @@ class TestEditMessage:
         panel.edit_message("prev")
         assert speech.last_message == "No hay mensaje anterior"
         frame.Destroy()
-        app.MainLoop()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -255,7 +246,6 @@ class TestRegenerateLast:
         assert len(send_args) == 1
         assert send_args[0] == ("Q1", 0)  # (text, user_idx)
         frame.Destroy()
-        app.MainLoop()
 
     def test_no_assistant_noop(self):
         """GIVEN no assistant row
@@ -267,7 +257,6 @@ class TestRegenerateLast:
         assert len(panel._history) == 1
         assert speech.last_message == "Nada que regenerar"
         frame.Destroy()
-        app.MainLoop()
 
     def test_noop_mid_generation(self):
         """GIVEN _is_generating is True
@@ -280,7 +269,6 @@ class TestRegenerateLast:
         assert len(panel._history) == 2
         assert speech.last_message == "Generación en curso"
         frame.Destroy()
-        app.MainLoop()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -301,7 +289,6 @@ class TestContextMenuCount:
         menu.Destroy()
         assert count == 7, f"Expected 7 items when idle, got {count}"
         frame.Destroy()
-        app.MainLoop()
 
     def test_4_items_mid_generation(self):
         """GIVEN _is_generating is True
@@ -314,4 +301,3 @@ class TestContextMenuCount:
         menu.Destroy()
         assert count == 4, f"Expected 4 items mid-generation, got {count}"
         frame.Destroy()
-        app.MainLoop()

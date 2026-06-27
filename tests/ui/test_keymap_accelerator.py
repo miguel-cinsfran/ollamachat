@@ -64,13 +64,12 @@ class TestAcceleratorTableCount:
         THEN entry count == len(DEFAULT_KEYMAP) - 1 (exit excluded)."""
         from bellbird.ui.main_window import MainWindow
 
-        app = wx.App()
+        app = wx.GetApp()
         frame = MainWindow(title="Test")
         expected = len(DEFAULT_KEYMAP) - 1  # exit is excluded
         count = _count_accelerator_entries(frame)
         assert count == expected, f"Expected {expected} entries, got {count}"
         frame.Destroy()
-        app.MainLoop()
 
 
 class TestExistingShortcutsRegressionGuard:
@@ -86,12 +85,11 @@ class TestExistingShortcutsRegressionGuard:
         """Ctrl+N is bound as an accelerator entry."""
         from bellbird.ui.main_window import MainWindow
 
-        app = wx.App()
+        app = wx.GetApp()
         frame = MainWindow(title="Test")
         table = frame.GetAcceleratorTable()
         assert table.IsOk(), "AcceleratorTable should be valid after MainWindow init"
         frame.Destroy()
-        app.MainLoop()
 
 
 class TestOverrideReflection:
@@ -108,7 +106,7 @@ class TestOverrideReflection:
         cfg = BellbirdConfig(
             keymap_overrides={"new_conversation": (KEYMAP_MOD_ALT, ord("N"))}
         )
-        app = wx.App()
+        app = wx.GetApp()
         with patch("bellbird.core.config.load_config", return_value=cfg):
             frame = MainWindow(title="Test")
         try:
@@ -123,7 +121,6 @@ class TestOverrideReflection:
             )
         finally:
             frame.Destroy()
-            app.MainLoop()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -182,7 +179,7 @@ class TestRebuildAcceleratorTable:
         THEN _action_ids size is stable (and table entries identical when API available)."""
         from bellbird.ui.main_window import MainWindow
 
-        app = wx.App()
+        app = wx.GetApp()
         frame = MainWindow(title="Test")
         try:
             ids_before = len(frame._action_ids)
@@ -213,7 +210,6 @@ class TestRebuildAcceleratorTable:
                 )
         finally:
             frame.Destroy()
-            app.MainLoop()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
