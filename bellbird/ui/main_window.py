@@ -478,10 +478,17 @@ class MainWindow(wx.Frame):
 
         servidor_menu.AppendSeparator()
         menu_download_gpu = servidor_menu.Append(
-            self.ID_DOWNLOAD_GPU, "Descargar llama-server &Vulkan (GPU)...",
-            "Descargar build GPU de llama-server (~32 MB). Usa la GPU en vez de la CPU para inferencia.",
+            self.ID_DOWNLOAD_GPU, "Descargar llama-server &CUDA (GPU, RTX)...",
+            "Descargar build CUDA de llama-server para NVIDIA (~550 MB). Máxima velocidad en RTX.",
         )
-        self.Bind(wx.EVT_MENU, lambda evt: self._on_download_gpu_server(), menu_download_gpu)
+        self.Bind(wx.EVT_MENU, lambda evt: self._on_download_gpu_server("cuda"), menu_download_gpu)
+
+        self.ID_DOWNLOAD_VULKAN = wx.NewIdRef()
+        menu_download_vulkan = servidor_menu.Append(
+            self.ID_DOWNLOAD_VULKAN, "Descargar llama-server &Vulkan (GPU, ~32 MB)...",
+            "Descargar build Vulkan de llama-server. Funciona con NVIDIA, AMD e Intel.",
+        )
+        self.Bind(wx.EVT_MENU, lambda evt: self._on_download_gpu_server("vulkan"), menu_download_vulkan)
 
         menu_use_system = servidor_menu.Append(
             self.ID_USE_SYSTEM_SERVER, "Usar llama-server del &sistema",
@@ -1061,29 +1068,43 @@ class MainWindow(wx.Frame):
             interrupt=True,
         )
 
-    def _on_download_gpu_server(self) -> None:
-        """Download and activate the Vulkan GPU build of llama-server (~32 MB)."""
-        import os as _os
-        dest_dir = Path(_os.environ.get("LOCALAPPDATA", str(Path.home()))) / "Bellbird" / "llama-server-vulkan"
-        exe_path = dest_dir / "llama-server.exe"
+    def _on_download_gpu_server(self, variant: str = "cuda") -> None:
+        """Download and activate a GPU build of llama-server.
 
+        variant: "cuda" → CUDA 13.3 (~550 MB, NVIDIA only, fastest)
+                 "vulkan" → Vulkan (~32 MB, NVIDIA/AMD/Intel)
+        """
+        import os as _os
+        local = _os.environ.get("LOCALAPPDATA", str(Path.home()))
+        if variant == "cuda":
+            dest_dir = Path(local) / "Bellbird" / "llama-server-cuda"
+            size_hint = "unos 550 megabytes (binario CUDA más runtime)"
+            label = "CUDA (RTX)"
+            cuda_ver = "cuda-13.3"
+        else:
+            dest_dir = Path(local) / "Bellbird" / "llama-server-vulkan"
+            size_hint = "unos 32 megabytes"
+            label = "Vulkan (GPU)"
+            cuda_ver = "vulkan"
+
+        exe_path = dest_dir / "llama-server.exe"
         if exe_path.exists() and self._config.llama_server_path == str(exe_path):
-            self._speech.speak("La versión GPU (Vulkan) ya está activa.", interrupt=True)
+            self._speech.speak(f"La versión {label} ya está activa.", interrupt=True)
             return
 
         self._speech.speak(
-            "Descargando llama-server con soporte Vulkan (GPU), unos 32 megabytes. "
-            "Esto puede tardar un minuto...",
+            f"Descargando llama-server {label}, {size_hint}. "
+            "Esto puede tardar varios minutos...",
             interrupt=True,
         )
 
         def _worker() -> None:
-            ok, result = download_server_binary("vulkan", dest_dir)
-            wx.CallAfter(self._on_download_gpu_done, ok, result)
+            ok, result = download_server_binary(cuda_ver, dest_dir)
+            wx.CallAfter(self._on_download_gpu_done, ok, result, label)
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _on_download_gpu_done(self, ok: bool, result: str) -> None:
+    def _on_download_gpu_done(self, ok: bool, result: str, label: str = "GPU") -> None:
         """Called on the UI thread when the GPU binary download finishes."""
         if not ok:
             self._speech.speak(f"Error al descargar: {result}", interrupt=True)
@@ -1097,7 +1118,7 @@ class MainWindow(wx.Frame):
             get_logger().exception("_on_download_gpu_done: failed to save config")
 
         self._speech.speak(
-            "Descarga completada. llama-server GPU (Vulkan) activado. "
+            f"Descarga completada. llama-server {label} activado. "
             "Los próximos modelos usarán la tarjeta gráfica.",
             interrupt=True,
         )

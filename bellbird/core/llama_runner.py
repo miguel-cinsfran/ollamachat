@@ -539,18 +539,19 @@ def get_install_command() -> str:
 def download_server_binary(
     variant: str,
     dest_dir: Path,
-    progress_cb: "Callable[[int, int], None] | None" = None,
+    progress_cb: "Callable[[str, int, int], None] | None" = None,
 ) -> tuple[bool, str]:
     """Download a GPU-accelerated llama-server binary from GitHub releases.
 
-    Downloads the requested build variant from the latest llama.cpp release,
-    extracts all files into *dest_dir*, and returns the path to the exe.
+    For ``variant="vulkan"`` downloads one zip (~32 MB).
+    For ``variant="cuda-13.3"`` (or ``"cuda-12.4"``) downloads two zips:
+    the llama binary (~160 MB) and the CUDA runtime DLLs (~391 MB).
+    Both are extracted flat into *dest_dir* so the exe finds its DLLs.
 
     Args:
-        variant: ``"vulkan"`` or ``"cuda-12.4"`` or ``"cuda-13.3"``.
+        variant: ``"vulkan"``, ``"cuda-12.4"``, or ``"cuda-13.3"``.
         dest_dir: Directory to extract the binary and DLLs into.
-        progress_cb: Optional ``(downloaded_bytes, total_bytes)`` callback
-            invoked during download.
+        progress_cb: Optional ``(label, downloaded_bytes, total_bytes)`` callback.
 
     Returns:
         ``(True, exe_path)`` on success, ``(False, error_message)`` on failure.
@@ -562,74 +563,99 @@ def download_server_binary(
     import urllib.request
     import zipfile
 
-    try:
-        # Resolve latest release tag and find asset download URL.
-        api_url = "https://api.github.com/repos/ggml-org/llama.cpp/releases/latest"
-        req = urllib.request.Request(
-            api_url, headers={"User-Agent": "bellbird/1.0"}
-        )
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            release = json.load(resp)
+    def _extract_zip_flat(zip_path: str, into: Path) -> None:
+        """Extract all file entries from zip_path, flattening subdirs."""
+        with zipfile.ZipFile(zip_path) as zf:
+            for info in zf.infolist():
+                filename = Path(info.filename).name
+                if not filename:
+                    continue
+                data = zf.read(info.filename)
+                (into / filename).write_bytes(data)
 
-        tag = release.get("tag_name", "")
-        assets: list[dict] = release.get("assets", [])
-
-        if variant == "vulkan":
-            pattern = f"llama-{tag}-bin-win-vulkan-x64.zip"
-        elif variant.startswith("cuda"):
-            cuda_ver = variant.replace("cuda-", "") if "-" in variant else "12.4"
-            pattern = f"llama-{tag}-bin-win-cuda-{cuda_ver}-x64.zip"
-        else:
-            return False, f"Variante desconocida: {variant!r}"
-
-        asset = next(
-            (a for a in assets if a.get("name") == pattern), None
-        )
-        if asset is None:
-            return False, (
-                f"No se encontró el asset {pattern!r} en el release {tag}. "
-                "Comprobá la conexión y que la versión esté disponible."
-            )
-
-        download_url: str = asset["browser_download_url"]
-        total_size: int = asset.get("size", 0)
-
-        # Download to a temp file with progress.
+    def _download(url: str, label: str, total_hint: int) -> tuple[bool, str]:
+        """Download url to a temp file; return (True, tmp_path) or (False, err)."""
         dest_dir.mkdir(parents=True, exist_ok=True)
         tmp_fd, tmp_path = tempfile.mkstemp(suffix=".zip", dir=dest_dir)
         os.close(tmp_fd)
 
-        downloaded = [0]
-
         def _reporthook(block: int, block_size: int, total: int) -> None:
-            downloaded[0] = min(block * block_size, total if total > 0 else block * block_size)
             if progress_cb:
-                progress_cb(downloaded[0], total if total > 0 else total_size)
+                done = min(block * block_size, total if total > 0 else block * block_size)
+                progress_cb(label, done, total if total > 0 else total_hint)
 
-        urllib.request.urlretrieve(download_url, tmp_path, reporthook=_reporthook)
-
-        # Extract all files flat into dest_dir (handle any subdirectory in the zip).
-        with zipfile.ZipFile(tmp_path) as zf:
-            has_server = any(
-                Path(n).name.lower() == "llama-server.exe"
-                for n in zf.namelist()
-            )
-            if not has_server:
+        try:
+            urllib.request.urlretrieve(url, tmp_path, reporthook=_reporthook)
+            return True, tmp_path
+        except Exception as exc:
+            try:
                 os.unlink(tmp_path)
-                return False, "El zip descargado no contiene llama-server.exe"
+            except OSError:
+                pass
+            return False, str(exc)
 
-            for info in zf.infolist():
-                filename = Path(info.filename).name
-                if not filename:  # directory entry
-                    continue
-                data = zf.read(info.filename)
-                (dest_dir / filename).write_bytes(data)
+    try:
+        # Fetch release metadata.
+        api_url = "https://api.github.com/repos/ggml-org/llama.cpp/releases/latest"
+        req = urllib.request.Request(api_url, headers={"User-Agent": "bellbird/1.0"})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            release = json.load(resp)
 
-        os.unlink(tmp_path)
+        tag: str = release.get("tag_name", "")
+        assets: list[dict] = release.get("assets", [])
+
+        def _asset_url(name: str) -> tuple[str, int]:
+            a = next((x for x in assets if x.get("name") == name), None)
+            if a is None:
+                raise ValueError(
+                    f"Asset {name!r} no encontrado en release {tag}. "
+                    "Comprobá la conexión a internet."
+                )
+            return a["browser_download_url"], a.get("size", 0)
+
+        if variant == "vulkan":
+            urls = [_asset_url(f"llama-{tag}-bin-win-vulkan-x64.zip")]
+        elif variant.startswith("cuda"):
+            cuda_ver = variant[len("cuda-"):] if "-" in variant else "13.3"
+            urls = [
+                _asset_url(f"llama-{tag}-bin-win-cuda-{cuda_ver}-x64.zip"),
+                _asset_url(f"cudart-llama-bin-win-cuda-{cuda_ver}-x64.zip"),
+            ]
+        else:
+            return False, f"Variante desconocida: {variant!r}"
+
+        labels = ["Binario llama-server", "Runtime CUDA (DLLs)"]
+        tmp_files: list[str] = []
+        for i, (url, size) in enumerate(urls):
+            label = labels[i] if i < len(labels) else f"Archivo {i+1}"
+            ok, result = _download(url, label, size)
+            if not ok:
+                for f in tmp_files:
+                    try:
+                        os.unlink(f)
+                    except OSError:
+                        pass
+                return False, f"Error descargando {label}: {result}"
+            tmp_files.append(result)
+
+        # Validate first zip contains llama-server.exe.
+        with zipfile.ZipFile(tmp_files[0]) as zf:
+            if not any(Path(n).name.lower() == "llama-server.exe" for n in zf.namelist()):
+                for f in tmp_files:
+                    try:
+                        os.unlink(f)
+                    except OSError:
+                        pass
+                return False, "El zip de binario no contiene llama-server.exe"
+
+        # Extract all zips.
+        for tmp in tmp_files:
+            _extract_zip_flat(tmp, dest_dir)
+            os.unlink(tmp)
 
         exe_path = dest_dir / "llama-server.exe"
         if not exe_path.exists():
-            return False, "llama-server.exe no aparece en el directorio de destino"
+            return False, "llama-server.exe no aparece en el directorio de destino tras la extracción"
         return True, str(exe_path)
 
     except urllib.error.URLError as exc:
