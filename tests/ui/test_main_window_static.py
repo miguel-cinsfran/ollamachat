@@ -11,8 +11,37 @@ import pathlib
 import pytest
 
 
-def _get_ui_path(filename: str) -> pathlib.Path:
-    return (
+class _CombinedPath:
+    """Wraps a pathlib.Path but reads combined source for main_window.py.
+
+    Mixin methods live in _server_mixin.py / _stream_mixin.py; static tests
+    that search main_window.py source now transparently include those files
+    so all AST/regex guards remain valid after the split.
+    """
+    _MIXIN_FILES = ("_server_mixin.py", "_stream_mixin.py")
+
+    def __init__(self, path: pathlib.Path) -> None:
+        self._path = path
+
+    def read_text(self, encoding: str = "utf-8") -> str:
+        source = self._path.read_text(encoding=encoding)
+        if self._path.name == "main_window.py":
+            ui_dir = self._path.parent
+            for mixin in self._MIXIN_FILES:
+                p = ui_dir / mixin
+                if p.exists():
+                    source += "\n" + p.read_text(encoding=encoding)
+        return source
+
+    def __truediv__(self, other):
+        return _CombinedPath(self._path / other)
+
+    def __getattr__(self, name):
+        return getattr(self._path, name)
+
+
+def _get_ui_path(filename: str) -> _CombinedPath:
+    return _CombinedPath(
         pathlib.Path(__file__).resolve().parent.parent.parent
         / "bellbird"
         / "ui"
@@ -252,7 +281,7 @@ def test_on_close_sets_is_closing_after_confirm_not_before():
     If set before, clicking No leaves the flag stuck at True.
     """
     import re
-    src = pathlib.Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
+    src = _get_ui_path("main_window.py").read_text(encoding="utf-8")
     m = re.search(
         r"def _on_close\(self, event: wx\.CloseEvent\) -> None:.*?"
         r"(?=\n    def |\nclass |\Z)",
@@ -274,7 +303,7 @@ def test_model_load_worker_binds_defaults_before_try():
     UnboundLocalError in the finally block, silently locking the buttons.
     """
     import re
-    src = pathlib.Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
+    src = _get_ui_path("main_window.py").read_text(encoding="utf-8")
     m = re.search(
         r"def _model_load_worker\(self, model: str.*?\) -> None:.*?"
         r"(?=\n    def |\nclass |\Z)",
@@ -635,7 +664,7 @@ def test_shell_tool_definition_in_catalog():
 def test_on_tool_result_passes_tool_call_id_to_add_message():
     """Regression CRITICAL-1: _on_tool_result must persist tool_call_id on tool message."""
     import re
-    src = pathlib.Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
+    src = _get_ui_path("main_window.py").read_text(encoding="utf-8")
     m = re.search(
         r"def _on_tool_result\(self, result, tool_call_id: str.*?\) -> None:.*?"
         r"(?=\n    def |\nclass |\Z)",
@@ -653,7 +682,7 @@ def test_on_tool_result_passes_tool_call_id_to_add_message():
 def test_iteration_guard_check_in_continue():
     """_continue_after_tool increments counter and checks max_tool_iterations."""
     import re
-    src = pathlib.Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
+    src = _get_ui_path("main_window.py").read_text(encoding="utf-8")
     m = re.search(
         r"def _continue_after_tool\(self\) -> None:.*?"
         r"(?=\n    def |\nclass |\Z)",
@@ -669,7 +698,7 @@ def test_iteration_guard_check_in_continue():
 def test_assistant_tool_calls_inserted_in_on_tool_result():
     """_on_tool_result inserts assistant message with tool_calls before tool message."""
     import re
-    src = pathlib.Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
+    src = _get_ui_path("main_window.py").read_text(encoding="utf-8")
     m = re.search(
         r"def _on_tool_result\(self, result, tool_call_id: str.*?\) -> None:.*?"
         r"(?=\n    def |\nclass |\Z)",
@@ -688,7 +717,7 @@ def test_assistant_tool_calls_inserted_in_on_tool_result():
 def test_send_message_gates_on_check_tool_support():
     """Tool support is probed in send_message prep; _continue_send gates on result."""
     import re
-    src = pathlib.Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
+    src = _get_ui_path("main_window.py").read_text(encoding="utf-8")
     send_m = re.search(r"def send_message\(self\) -> None:.*?(?=\n    def |\nclass |\Z)", src, re.DOTALL)
     assert send_m is not None, "send_message not found"
     assert "check_tool_support" in send_m.group(0)
@@ -700,7 +729,7 @@ def test_send_message_gates_on_check_tool_support():
 def test_send_message_guards_on_tool_executing():
     """send_message early-return guard checks _tool_executing (race condition)."""
     import re
-    src = pathlib.Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
+    src = _get_ui_path("main_window.py").read_text(encoding="utf-8")
     m = re.search(r"def send_message\(self\).*?(?=\n    def |\nclass |\Z)", src, re.DOTALL)
     assert m is not None, "send_message not found"
     assert "_tool_executing" in m.group(0)
@@ -709,7 +738,7 @@ def test_send_message_guards_on_tool_executing():
 def test_on_tool_call_sets_tool_executing():
     """_on_tool_call sets _tool_executing = True as its first statement."""
     import re
-    src = pathlib.Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
+    src = _get_ui_path("main_window.py").read_text(encoding="utf-8")
     m = re.search(
         r"def _on_tool_call\(self, tool_name.*?\) -> None:.*?"
         r"(?=\n    def |\nclass |\Z)",
@@ -722,7 +751,7 @@ def test_on_tool_call_sets_tool_executing():
 def test_on_tool_result_clears_tool_executing():
     """_on_tool_result clears _tool_executing = False before any guard."""
     import re
-    src = pathlib.Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
+    src = _get_ui_path("main_window.py").read_text(encoding="utf-8")
     m = re.search(
         r"def _on_tool_result\(self, result, tool_call_id: str.*?\) -> None:.*?"
         r"(?=\n    def |\nclass |\Z)",
@@ -739,7 +768,7 @@ def test_on_tool_result_clears_tool_executing():
 def test_on_done_skips_save_when_tool_executing():
     """_on_done checks _tool_executing before saving assistant message (race condition)."""
     import re
-    src = pathlib.Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
+    src = _get_ui_path("main_window.py").read_text(encoding="utf-8")
     m = re.search(r"def _on_done\(self\) -> None:.*?(?=\n    def |\nclass |\Z)", src, re.DOTALL)
     assert m is not None, "_on_done not found"
     assert "_tool_executing" in m.group(0)
@@ -748,7 +777,7 @@ def test_on_done_skips_save_when_tool_executing():
 def test_grant_session_uses_get_risk():
     """grant_session must use dlg.get_risk() (post-edit risk), not original risk."""
     import re
-    src = pathlib.Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
+    src = _get_ui_path("main_window.py").read_text(encoding="utf-8")
     m = re.search(
         r"def _on_tool_call\(self, tool_name.*?\) -> None:.*?"
         r"(?=\n    def |\nclass |\Z)",
@@ -761,7 +790,7 @@ def test_grant_session_uses_get_risk():
 def test_post_tool_speech_no_consultando():
     """_on_tool_result speech must NOT contain 'Consultando al modelo'."""
     import re
-    src = pathlib.Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
+    src = _get_ui_path("main_window.py").read_text(encoding="utf-8")
     m = re.search(
         r"def _on_tool_result\(self, result, tool_call_id: str.*?\) -> None:.*?"
         r"(?=\n    def |\nclass |\Z)",
@@ -831,7 +860,7 @@ def test_abort_generation_calls_tool_executor_cancel_before_client_abort():
 def test_on_tool_result_guards_result_cancelled():
     """_on_tool_result checks result.cancelled and returns before _continue_after_tool."""
     import re
-    src = pathlib.Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
+    src = _get_ui_path("main_window.py").read_text(encoding="utf-8")
     m = re.search(
         r"def _on_tool_result\(self, result, tool_call_id: str.*?\) -> None:.*?"
         r"(?=\n    def |\nclass |\Z)",
@@ -1033,19 +1062,16 @@ def test_both_call_sites_use_build_options():
     source = _get_ui_path("main_window.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
 
-    class_node = next(
-        (n for n in ast.walk(tree) if isinstance(n, ast.ClassDef) and n.name == "MainWindow"),
-        None,
-    )
-    assert class_node is not None
-
     def _has_build_options(method_name: str) -> bool:
-        for item in class_node.body:
-            if isinstance(item, ast.FunctionDef) and item.name == method_name:
-                return any(
-                    isinstance(call, ast.Call) and "build_options" in ast.unparse(call.func)
-                    for call in ast.walk(item)
-                )
+        for cls_node in ast.walk(tree):
+            if not isinstance(cls_node, ast.ClassDef):
+                continue
+            for item in cls_node.body:
+                if isinstance(item, ast.FunctionDef) and item.name == method_name:
+                    return any(
+                        isinstance(call, ast.Call) and "build_options" in ast.unparse(call.func)
+                        for call in ast.walk(item)
+                    )
         return False
 
     assert _has_build_options("_continue_send"), "_continue_send must call build_options()"
@@ -1089,7 +1115,7 @@ def test_f2_uses_format_status():
 def test_focus_courtesy_only_when_user_still_on_placeholder():
     """_on_done must guard SetSelection with GetSelection equality check."""
     import re
-    src = pathlib.Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
+    src = _get_ui_path("main_window.py").read_text(encoding="utf-8")
     m = re.search(r"def _on_done\(self\) -> None:.*?(?=\n    def |\nclass |\Z)", src, re.DOTALL)
     assert m is not None, "_on_done not found"
     body = m.group(0)
@@ -1106,7 +1132,7 @@ def test_focus_courtesy_only_when_user_still_on_placeholder():
 
 def test_open_message_in_browser_calls_render_message_html():
     """_open_message_in_browser delegates HTML generation to render_message_html."""
-    src = pathlib.Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
+    src = _get_ui_path("main_window.py").read_text(encoding="utf-8")
     tree = ast.parse(src)
     method = next(
         (n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "_open_message_in_browser"),
@@ -1120,7 +1146,7 @@ def test_open_message_in_browser_calls_render_message_html():
 
 def test_open_message_in_browser_calls_webbrowser_open():
     """_open_message_in_browser calls webbrowser.open to show the HTML file."""
-    src = pathlib.Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
+    src = _get_ui_path("main_window.py").read_text(encoding="utf-8")
     tree = ast.parse(src)
     method = next(
         (n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "_open_message_in_browser"),
@@ -1134,7 +1160,7 @@ def test_open_message_in_browser_calls_webbrowser_open():
 
 def test_open_message_in_browser_does_not_call_markdown():
     """_open_message_in_browser does NOT call markdown.markdown( directly."""
-    src = pathlib.Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
+    src = _get_ui_path("main_window.py").read_text(encoding="utf-8")
     tree = ast.parse(src)
     method = next(
         (n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "_open_message_in_browser"),
@@ -1148,7 +1174,7 @@ def test_open_message_in_browser_does_not_call_markdown():
 
 def test_open_message_in_browser_uses_named_temporary_file():
     """_open_message_in_browser uses NamedTemporaryFile to write HTML."""
-    src = pathlib.Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
+    src = _get_ui_path("main_window.py").read_text(encoding="utf-8")
     tree = ast.parse(src)
     method = next(
         (n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "_open_message_in_browser"),
@@ -1166,7 +1192,7 @@ def test_open_message_in_browser_uses_named_temporary_file():
 def test_no_message_dialog_in_attach_url_paths():
     """_on_attach_url, _on_fetch_complete, _fetch_url_worker must use speech.speak, not MessageDialog."""
     import re
-    src = pathlib.Path("bellbird/ui/main_window.py").read_text(encoding="utf-8")
+    src = _get_ui_path("main_window.py").read_text(encoding="utf-8")
     for method_name in ("_on_attach_url", "_on_fetch_complete", "_fetch_url_worker"):
         m = re.search(
             rf"def {method_name}\(.*?\) -> None:.*?"

@@ -12,13 +12,10 @@ from pathlib import Path
 
 
 def _get_source() -> str:
-    """Read main_window.py source."""
-    return (
-        Path(__file__).resolve().parent.parent.parent
-        / "bellbird"
-        / "ui"
-        / "main_window.py"
-    ).read_text(encoding="utf-8")
+    """Return combined source: main_window.py + server/stream mixins."""
+    ui_dir = Path(__file__).resolve().parent.parent.parent / "bellbird" / "ui"
+    parts = [ui_dir / "main_window.py", ui_dir / "_server_mixin.py", ui_dir / "_stream_mixin.py"]
+    return "\n".join(p.read_text(encoding="utf-8") for p in parts if p.exists())
 
 
 def _get_func_body(func_name: str, src: str) -> str:
