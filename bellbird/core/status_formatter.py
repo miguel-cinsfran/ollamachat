@@ -41,6 +41,9 @@ class SessionSnapshot:
         top_p: Nucleus sampling parameter.
         max_tokens: Maximum output tokens per response.
         is_generating: ``True`` while a stream is active.
+        persona: Name of the active persona (custom system prompt), or
+            ``""``. Optional/defaulted so existing positional construction
+            keeps working.
     """
 
     model_name: str
@@ -58,6 +61,7 @@ class SessionSnapshot:
     top_p: float
     max_tokens: int
     is_generating: bool
+    persona: str = ""
 
 
 # ─── Default status toggles ───────────────────────────────────────────────────
@@ -66,6 +70,7 @@ class SessionSnapshot:
 # Canonical order: identity → capacity → environment → metrics → knobs.
 DEFAULT_STATUS_TOGGLES: tuple[str, ...] = (
     "model_name",
+    "persona",
     "context_pct",
     "max_tokens",
     "server",
@@ -158,6 +163,11 @@ def _render_component(
     """Render a single component to a string, or ``""`` if data is missing."""
     if name == "model_name":
         return snap.model_name  # may be empty string
+
+    elif name == "persona":
+        if not snap.persona:
+            return ""
+        return f"Persona: {snap.persona}"
 
     elif name == "context_pct":
         return _render_context_pct(snap, mode)

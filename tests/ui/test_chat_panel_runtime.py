@@ -59,6 +59,59 @@ class TestChatPanelRuntime:
         )
 
 
+class TestEmptyHint:
+    """The empty-list hint row prevents NVDA reading 'desconocido' and keeps
+    the message_list-index == _history-index invariant for real rows."""
+
+    def test_hint_shown_on_empty_construction(self, panel):
+        assert panel._hint_shown is True
+        assert panel.message_list.GetCount() == 1
+        assert len(panel._history) == 0
+        assert "vacía" in panel.message_list.GetString(0).lower()
+
+    def test_hint_dropped_on_first_user_message(self, panel):
+        panel.append_user_message("Hola")
+        assert panel._hint_shown is False
+        assert panel.message_list.GetCount() == 1
+        assert len(panel._history) == 1
+        # Real row at index 0 — invariant intact
+        assert panel.message_list.GetString(0).startswith("[Tú]")
+
+    def test_hint_dropped_on_start_generation_keeps_streaming_index(self, panel):
+        panel.start_generation()
+        assert panel._hint_shown is False
+        # Streaming index must point at the actual streaming row
+        assert panel.message_list.GetString(panel._streaming_index) == "[IA] (generando…)"
+
+    def test_hint_returns_after_clear(self, panel):
+        panel.append_user_message("Hola")
+        panel.clear()
+        assert panel._hint_shown is True
+        assert panel.message_list.GetCount() == 1
+        assert len(panel._history) == 0
+
+    def test_hint_returns_after_deleting_only_message(self, panel):
+        panel._speech = FakeSpeech()  # _on_context_delete speaks on success
+        panel.append_user_message("Hola")
+        panel.message_list.SetSelection(0)
+        panel._on_context_delete()
+        assert panel._hint_shown is True
+        assert len(panel._history) == 0
+        assert panel.message_list.GetCount() == 1
+
+    def test_delete_on_hint_row_is_noop(self, panel):
+        # Land selection on the hint row and press delete — must not crash
+        # (the guard returns before reaching speech)
+        panel.message_list.SetSelection(0)
+        panel._on_context_delete()
+        assert len(panel._history) == 0
+        assert panel._hint_shown is True
+
+    def test_hint_not_in_get_history(self, panel):
+        # The hint is UI-only and must never leak into saved sessions
+        assert panel.get_history() == []
+
+
 # ─── FakeSpeech helper ──────────────────────────────────────────────────────
 
 

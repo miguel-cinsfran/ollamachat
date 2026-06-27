@@ -47,6 +47,7 @@ from bellbird.core.tool_executor import ToolExecutor, ToolResult
 from bellbird.ui.permission_dialog import PermissionDialog
 from bellbird.ui.preferences_dialog import PreferencesDialog
 from bellbird.ui.personas_dialog import PersonasDialog
+from bellbird.core.personas import load_personas, find_by_id
 from bellbird.ui.wx_notifier import WxToastSender
 from bellbird.core.notifier import Notifier
 from bellbird.core.system_voice import SystemVoice
@@ -160,6 +161,9 @@ class MainWindow(wx.Frame):
         self._vram_total_mb: int | None = None
         self._fit_status: str | None = None
         self._pre_send_warned_this_conv: bool = False
+        # Cached active-persona name so F2 never reads personas.json on the UI
+        # thread. Refreshed at startup and whenever the personas dialog closes.
+        self._active_persona_name: str = ""
         self._context_warned_for_turn: bool = False
         self._last_f2_mono: float | None = None
         self._meter_threshold_fired: bool = False
@@ -181,6 +185,7 @@ class MainWindow(wx.Frame):
         self._build_accelerators()
         self._create_status_bar()
         self.Bind(wx.EVT_CLOSE, self._on_close)
+        self._refresh_active_persona_name()
         self._start_probe_thread()
         wx.CallAfter(self._set_initial_focus)
         wx.CallAfter(self._auto_restore_last_session)
@@ -918,13 +923,18 @@ class MainWindow(wx.Frame):
             except OSError:
                 pass  # best-effort persistence
 
-        # Restore per-model tunings (T-WU2-07)
+        # Restore per-model tunings (T-WU2-07). Track whether a saved profile
+        # was applied so the load announcement can make the per-model config
+        # discoverable (the user asked for an audible "this model uses N ctx").
+        applied_saved_tuning = False
         if basename in self._config.model_tunings:
             saved = self._config.model_tunings[basename]
             if "ctx_size" in saved:
                 self._config.ctx_size = saved["ctx_size"]
+                applied_saved_tuning = True
             if "n_gpu_layers" in saved:
                 self._config.n_gpu_layers = saved["n_gpu_layers"]
+                applied_saved_tuning = True
 
         log.info(
             "_on_use_model: starting server — model=%s mmproj=%s ctx=%s ngl=%s port=%s",
@@ -935,9 +945,17 @@ class MainWindow(wx.Frame):
         self._play_loop("connecting")  # warm loop until the server responds
         self.use_model_button.Disable()
         self.restart_server_button.Disable()
-        self._speech.speak(
-            f"Iniciando servidor con {basename}...", interrupt=True
-        )
+        if applied_saved_tuning:
+            self._speech.speak(
+                f"Iniciando servidor con {basename}. "
+                f"Configuración guardada de este modelo: contexto "
+                f"{self._config.ctx_size} tokens.",
+                interrupt=True,
+            )
+        else:
+            self._speech.speak(
+                f"Iniciando servidor con {basename}...", interrupt=True
+            )
         self.status_bar.SetStatusText("Iniciando servidor...", 0)
         # Cancel any stale loading timer before arming a new one (defensive —
         # the _is_loading_model guard above already prevents the common race).
@@ -1267,6 +1285,23 @@ class MainWindow(wx.Frame):
 
     # ── Session Status (F2) ──────────────────────────────────────────────────
 
+    def _refresh_active_persona_name(self) -> None:
+        """Resolve config.persona_activa (an id) to a display name and cache it.
+
+        Does a small local read of personas.json — cheap, never HTTP — so it
+        runs on the UI thread safely. F2 reads only the cached result. When no
+        persona is active (no-persona mode), caches "Sin persona".
+        """
+        pid = self._config.persona_activa
+        if not pid:
+            self._active_persona_name = "Sin persona"
+            return
+        try:
+            persona = find_by_id(load_personas(), pid)
+            self._active_persona_name = persona.nombre if persona else pid
+        except Exception:
+            self._active_persona_name = pid
+
     def _announce_session_status(self) -> None:
         """Announce the current session status via speech (F2).
 
@@ -1316,6 +1351,7 @@ class MainWindow(wx.Frame):
             top_p=self._config.top_p,
             max_tokens=self._config.max_tokens,
             is_generating=self._is_generating,
+            persona=self._active_persona_name,
         )
 
         toggles = self._config.status_toggles_as_set()
@@ -2674,6 +2710,7 @@ class MainWindow(wx.Frame):
             old_port = self._config.port
             self._config = new_config
             save_config(self._config)
+            self._refresh_active_persona_name()
             if self._config.port != old_port:
                 self._client = LlamaClient(
                     base_url=f"http://localhost:{self._config.port}"
@@ -2687,6 +2724,7 @@ class MainWindow(wx.Frame):
         dlg.save_if_dirty()
         dlg.Destroy()
         save_config(self._config)
+        self._refresh_active_persona_name()
 
 
 # Defined AFTER MainWindow so MainWindow.__init__ remains the first __init__ in

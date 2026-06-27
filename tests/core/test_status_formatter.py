@@ -47,13 +47,13 @@ class TestSessionSnapshot:
         with pytest.raises(dataclasses.FrozenInstanceError):
             snap.is_generating = True
 
-    def test_default_set_has_11_names(self):
+    def test_default_set_has_12_names(self):
         """GIVEN DEFAULT_STATUS_TOGGLES
-        THEN it is a tuple of 11 strings."""
+        THEN it is a tuple of 12 strings (persona added after model_name)."""
         assert isinstance(DEFAULT_STATUS_TOGGLES, tuple)
-        assert len(DEFAULT_STATUS_TOGGLES) == 11
+        assert len(DEFAULT_STATUS_TOGGLES) == 12
         expected = [
-            "model_name", "context_pct", "max_tokens", "server",
+            "model_name", "persona", "context_pct", "max_tokens", "server",
             "vram", "fit", "message_count", "temperature", "top_p",
             "tok_per_s", "is_generating",
         ]
@@ -131,7 +131,7 @@ class TestFormatStatusDeterminism:
         assert result == ""
 
 
-# ─── Individual toggle tests (DEFAULT_STATUS_TOGGLES × 11 + extras) ──────────
+# ─── Individual toggle tests (DEFAULT_STATUS_TOGGLES × 12 + extras) ──────────
 
 
 def _make_full_snapshot() -> SessionSnapshot:
@@ -167,6 +167,17 @@ class TestFormatStatusToggles:
     def test_model_name_off(self):
         result = format_status(self.SNAP, set(), "short")
         assert "llama" not in result
+
+    def test_persona_on(self):
+        snap = dataclasses.replace(self.SNAP, persona="Traductor")
+        result = format_status(snap, {"persona"}, "short")
+        assert "Traductor" in result
+        assert "Persona" in result
+
+    def test_persona_omitted_when_empty(self):
+        # Default persona "" must be omitted even when the toggle is on.
+        result = format_status(self.SNAP, {"persona"}, "short")
+        assert "Persona" not in result
 
     def test_context_pct_on(self):
         result = format_status(self.SNAP, {"context_pct"}, "short")

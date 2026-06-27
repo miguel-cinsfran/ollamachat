@@ -14,6 +14,14 @@ import wx
 
 from bellbird.core.text_utils import strip_markdown
 
+# Shown as the only row while the conversation is empty. An empty wx.ListBox
+# does not surface its name= as the accessible name, so NVDA reads
+# "desconocido" when the user lands on it before sending anything. A single
+# non-message hint row gives NVDA something meaningful to announce and tells
+# the user what to do. It is removed before any real row is appended, so the
+# message_list-index == _history-index invariant holds for non-empty lists.
+_EMPTY_HINT = "Conversación vacía. Escribe un mensaje abajo y presiona Enter para empezar."
+
 
 class ChatPanel(wx.Panel):
     """Panel for conversation display, input, and action buttons.
@@ -39,7 +47,9 @@ class ChatPanel(wx.Panel):
         self._history: list[tuple[str, str]] = []
         self._is_generating: bool = False
         self._streaming_index: int | None = None
+        self._hint_shown: bool = False
         self._build_ui()
+        self._add_hint_if_empty()
 
     def _build_ui(self) -> None:
         """Build the chat panel layout with single-ListBox conversation display."""
@@ -185,11 +195,33 @@ class ChatPanel(wx.Panel):
         """
         self._history = list(messages)
         self.message_list.Clear()
+        self._hint_shown = False  # Clear() removed any hint row
         for role, text in self._history:
             prefix = "[Tú]" if role == "user" else "[IA]"
             self.message_list.Append(f"{prefix} {self._preview(text)}")
         if self._history:
             self.message_list.SetSelection(len(self._history) - 1)
+        else:
+            self._add_hint_if_empty()
+
+    # ── Empty-list hint (NVDA: avoid "desconocido") ────────────────────────
+
+    def _drop_hint(self) -> None:
+        """Remove the empty-list hint row (always index 0) before appending a
+        real row, so message_list-index stays aligned with _history-index."""
+        if self._hint_shown:
+            self.message_list.Delete(0)
+            self._hint_shown = False
+
+    def _add_hint_if_empty(self) -> None:
+        """Show the single hint row when the list has no real messages. No-op
+        while generating (the streaming row occupies the list) to keep
+        _streaming_index valid."""
+        if self._is_generating or self._streaming_index is not None:
+            return
+        if not self._history and not self._hint_shown:
+            self.message_list.Append(_EMPTY_HINT)
+            self._hint_shown = True
 
     # ── Display methods ────────────────────────────────────────────────────
 
@@ -199,6 +231,7 @@ class ChatPanel(wx.Panel):
         Args:
             text: User message text.
         """
+        self._drop_hint()
         self._history.append(("user", text))
         preview = f"[Tú] {self._preview(text)}"
         self.message_list.Append(preview)
@@ -210,6 +243,7 @@ class ChatPanel(wx.Panel):
         self.send_button.Disable()
         self.attach_button.Disable()
         self.stop_button.Enable()
+        self._drop_hint()
         self.message_list.Append("[IA] (generando…)")
         self._streaming_index = self.message_list.GetCount() - 1
 
@@ -259,6 +293,7 @@ class ChatPanel(wx.Panel):
         self.send_button.Enable()
         self.attach_button.Enable()
         self.stop_button.Disable()
+        self._add_hint_if_empty()
 
     # ── Search methods ────────────────────────────────────────────────────
 
@@ -452,6 +487,8 @@ class ChatPanel(wx.Panel):
         sel = self.message_list.GetSelection()
         if sel == wx.NOT_FOUND:
             return
+        if sel >= len(self._history):
+            return  # hint row or stale selection — nothing to delete
         role = self._history[sel][0]  # capture BEFORE pop
         self._history.pop(sel)
         self.message_list.Delete(sel)
@@ -461,6 +498,7 @@ class ChatPanel(wx.Panel):
             self.message_list.SetSelection(new_sel)
         if self._on_delete_callback:
             self._on_delete_callback(sel, role)
+        self._add_hint_if_empty()
         self._speech.speak("Mensaje eliminado", interrupt=False)
 
     # ── Key routing ────────────────────────────────────────────────────────
@@ -807,6 +845,8 @@ class ChatPanel(wx.Panel):
         self._streaming_index = None
         self.message_list.Clear()
         self._history.clear()
+        self._hint_shown = False  # Clear() removed any hint row
+        self._add_hint_if_empty()
         self._clear_input()
         self.clear_attachment()
 
@@ -882,6 +922,7 @@ class ChatPanel(wx.Panel):
         count = self.message_list.GetCount()
         if count > 0:
             self.message_list.SetSelection(count - 1)
+        self._add_hint_if_empty()
         self._speech.speak("Último intercambio eliminado", interrupt=False)
 
     def edit_message(self, direction: str) -> None:
@@ -986,12 +1027,14 @@ class ChatPanel(wx.Panel):
     def append_tool_call(self, tool_name: str, command: str) -> None:
         """Muestra el comando que el modelo va a ejecutar (antes del resultado)."""
         text = f"[Comando] {tool_name}: {command}"
+        self._drop_hint()
         self._history.append(("system", text))
         self.message_list.Append(self._preview(text))
         self.message_list.SetSelection(self.message_list.GetCount() - 1)
 
     def append_tool_output(self, text: str) -> None:
         """Muestra el resultado de una herramienta en el historial."""
+        self._drop_hint()
         self._history.append(("tool", text))
         preview = f"[Resultado] {self._preview(text)}"
         self.message_list.Append(preview)
@@ -1000,6 +1043,7 @@ class ChatPanel(wx.Panel):
     def append_tool_blocked(self, tool_name: str, command: str) -> None:
         """Muestra que un comando fue bloqueado por seguridad."""
         text = f"[Bloqueado] {tool_name}: {command}"
+        self._drop_hint()
         self._history.append(("system", text))
         # text already starts with "[Bloqueado]" — don't prepend it twice.
         self.message_list.Append(self._preview(text))
@@ -1008,6 +1052,7 @@ class ChatPanel(wx.Panel):
     def append_tool_denied(self, tool_name: str) -> None:
         """Muestra que el usuario denegó la ejecución."""
         text = f"[Denegado] {tool_name}"
+        self._drop_hint()
         self._history.append(("system", text))
         self.message_list.Append(text)
         self.message_list.SetSelection(self.message_list.GetCount() - 1)

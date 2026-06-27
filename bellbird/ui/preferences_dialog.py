@@ -1152,6 +1152,7 @@ class PreferencesDialog(wx.Dialog):
         # Labels in Spanish, same order as DEFAULT_STATUS_TOGGLES
         toggle_labels: dict[str, str] = {
             "model_name": "&Modelo",
+            "persona": "&Persona activa",
             "context_pct": "&Porcentaje de contexto",
             "max_tokens": "&Máx tokens/respuesta",
             "server": "&Servidor",
